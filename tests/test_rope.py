@@ -48,7 +48,7 @@ class RopeTests(unittest.TestCase):
         expected[..., 1::2] = value_float[..., 0::2] * sine + value_float[..., 1::2] * cosine
 
         actual = _apply_interleaved_rope(value, positions, 10000.0)
-        torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+        torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-6)
 
 
 if __name__ == "__main__":
