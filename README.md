@@ -13,7 +13,7 @@
 
 打开 ComfyUI-Manager，在节点管理器里搜索 `SenseNova U1.5 (T8)`，点击安装并重启 ComfyUI。
 
-Registry 页面：[t8star/sensenova-u15-t8](https://registry.comfy.org/t8star/sensenova-u15-t8)
+Registry 页面：[sensenova-u15-t8](https://registry.comfy.org/nodes/sensenova-u15-t8)
 
 也可以使用 Comfy CLI：
 
