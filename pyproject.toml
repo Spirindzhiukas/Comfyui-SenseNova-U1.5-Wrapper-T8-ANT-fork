@@ -1,0 +1,22 @@
+[project]
+name = "sensenova-u15-t8"
+version = "1.0.0"
+description = "Native ComfyUI nodes for SenseNova-U1.5 text-to-image generation and single-image editing."
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+dependencies = []
+classifiers = [
+    "Operating System :: OS Independent",
+    "Environment :: GPU :: NVIDIA CUDA",
+]
+
+[project.urls]
+Repository = "https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8"
+Documentation = "https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8#readme"
+"Bug Tracker" = "https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8/issues"
+"Model Download" = "https://huggingface.co/t8star/SenseNova-U1.5-Comfy/"
+
+[tool.comfy]
+PublisherId = "t8star"
+DisplayName = "SenseNova U1.5 (T8)"
+requires-comfyui = ">=0.31.0"

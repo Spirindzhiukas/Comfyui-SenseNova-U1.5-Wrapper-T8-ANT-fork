@@ -9,6 +9,20 @@
 
 节点只读取本地模型，运行时不会联网下载文件。
 
+## 用 ComfyUI-Manager 安装
+
+打开 ComfyUI-Manager，在节点管理器里搜索 `SenseNova U1.5 (T8)`，点击安装并重启 ComfyUI。
+
+Registry 页面：[t8star/sensenova-u15-t8](https://registry.comfy.org/t8star/sensenova-u15-t8)
+
+也可以使用 Comfy CLI：
+
+```bash
+comfy node install sensenova-u15-t8
+```
+
+Manager 安装的是节点，不包含约 50 GB 的模型。模型仍需从下面的地址单独下载。
+
 ## 下载
 
 - **模型（Hugging Face）：** [t8star/SenseNova-U1.5-Comfy](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/)
