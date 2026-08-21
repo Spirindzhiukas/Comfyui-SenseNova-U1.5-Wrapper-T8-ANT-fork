@@ -44,7 +44,7 @@ ComfyUI/models/diffusion_models/
 
 ## 直接使用工作流
 
-下载下面的 JSON，直接拖进 ComfyUI。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
+下面 3 个都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
 
 - [文生图工作流](examples/t2i_workflow.json)
 - [普通编辑工作流（img_cfg=1）](examples/edit_workflow.json)
@@ -165,12 +165,6 @@ revision：1f6ec60423d29939dde4202fd82ae340b144e280
 ```
 
 节点会检查模型 metadata、全部 tensor 名称、shape 和存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
-
-API 格式示例仍保留在 `examples` 目录：
-
-- [文生图 API](examples/t2i_api.json)
-- [普通编辑 API](examples/edit_two_way_api.json)
-- [三路编辑 API](examples/edit_api.json)
 
 ## 其他链接
 
