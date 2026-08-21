@@ -1,0 +1,133 @@
+import hashlib
+from pathlib import Path
+
+import torch
+from safetensors import safe_open
+
+import comfy.model_management
+import comfy.model_patcher
+import comfy.ops
+import comfy.sd
+import comfy.utils
+
+from .model import HIDDEN_SIZE, NUM_LAYERS, VOCAB_SIZE, SenseNovaU15
+from .model_config import SenseNovaModelConfig
+
+
+CONFIG_SHA256 = "6497591f64cb0dd6917fbb10c0cd13024e5817179a9aa3700998eb137a553d6b"
+MODEL_REVISION = "1f6ec60423d29939dde4202fd82ae340b144e280"
+TOKENIZER_ASSET_SHA256 = {
+    "config.json": CONFIG_SHA256,
+    "tokenizer_config.json": "7433b95cec590c7d687259e81bca1bc4630ff39773dbf7f30f7df27a99748077",
+    "special_tokens_map.json": "529306ff26be5cf190b4d96781e63c7dccd03ef0a39f87c0f1289d2d5a67a02f",
+    "added_tokens.json": "d0ff3acec259fabfafc1ffa67638aeaf58203e5e604648fb44f072e4efe040c4",
+    "vocab.json": "87a257b04b17642a0688c98cd1df89c398bda4fee532d6f88b38a659ecb4ac8d",
+    "merges.txt": "455e0caaa06abffc663e9282dfe71dde07fd1991eaf24146bf08793c4dba4497",
+}
+
+
+def _validate_metadata(metadata):
+    if metadata.get("config_sha256") != CONFIG_SHA256:
+        raise ValueError("SenseNova-U1.5 config digest does not match this node version")
+    if metadata.get("source_revision") != MODEL_REVISION:
+        raise ValueError("SenseNova-U1.5 model revision does not match this node version")
+
+
+def _checkpoint_contract():
+    model = SenseNovaU15(
+        device=torch.device("meta"),
+        dtype=torch.bfloat16,
+        operations=comfy.ops.disable_weight_init,
+    )
+    contract = {name: tuple(tensor.shape) for name, tensor in model.state_dict().items()}
+    contract["language_model.lm_head.weight"] = (VOCAB_SIZE, HIDDEN_SIZE)
+    return contract
+
+
+def _storage_dtype(name):
+    if name.startswith((
+        "fm_modules.vision_model_mot_gen.",
+        "fm_modules.timestep_embedder.",
+        "fm_modules.noise_scale_embedder.",
+    )):
+        return "F32"
+    layer_prefix = "language_model.model.layers."
+    if name.startswith(layer_prefix) and "_mot_gen" in name:
+        layer = int(name[len(layer_prefix):].split(".", 1)[0])
+        if layer < NUM_LAYERS - 3:
+            return "F32"
+    return "BF16"
+
+
+def _validate_checkpoint_header(checkpoint):
+    _validate_metadata(checkpoint.metadata() or {})
+    contract = _checkpoint_contract()
+    actual_keys = set(checkpoint.keys())
+    expected_keys = set(contract)
+    if actual_keys != expected_keys:
+        missing = sorted(expected_keys - actual_keys)[:5]
+        unexpected = sorted(actual_keys - expected_keys)[:5]
+        raise ValueError(f"SenseNova-U1.5 checkpoint key mismatch: missing={missing}, unexpected={unexpected}")
+    for name, shape in contract.items():
+        tensor = checkpoint.get_slice(name)
+        actual_shape = tuple(tensor.get_shape())
+        if actual_shape != shape:
+            raise ValueError(f"SenseNova-U1.5 checkpoint shape mismatch for {name}: {actual_shape} != {shape}")
+        expected_dtype = _storage_dtype(name)
+        if tensor.get_dtype() != expected_dtype:
+            raise ValueError(
+                f"SenseNova-U1.5 checkpoint dtype mismatch for {name}: {tensor.get_dtype()} != {expected_dtype}"
+            )
+    return expected_keys
+
+
+def _validate_tokenizer_assets():
+    asset_dir = Path(__file__).resolve().parent / "tokenizer"
+    for name, expected in TOKENIZER_ASSET_SHA256.items():
+        path = asset_dir / name
+        digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+        if digest != expected:
+            raise ValueError(f"SenseNova-U1.5 tokenizer asset digest mismatch: {name}")
+
+
+def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False):
+    if Path(model_path).suffix.lower() not in (".safetensors", ".sft"):
+        raise ValueError("SenseNova-U1.5 loader accepts safetensors files only")
+    with safe_open(model_path, framework="pt", device="cpu") as checkpoint:
+        expected_keys = _validate_checkpoint_header(checkpoint)
+    state_dict, metadata = comfy.utils.load_torch_file(model_path, return_metadata=True)
+    _validate_metadata(metadata)
+    if set(state_dict) != expected_keys:
+        raise ValueError("SenseNova-U1.5 loaded state dict does not match the validated header")
+
+    load_device = comfy.model_management.get_torch_device()
+    model_config = SenseNovaModelConfig({})
+    manual_cast_dtype = comfy.model_management.unet_manual_cast(
+        dtype, load_device, model_config.supported_inference_dtypes
+    )
+    model_config.set_inference_dtype(dtype, manual_cast_dtype, device=load_device)
+
+    parameters = comfy.utils.calculate_parameters(state_dict)
+    initial_load_device = comfy.model_management.unet_inital_load_device(parameters, dtype)
+    model = model_config.get_model(state_dict, device=initial_load_device)
+    patcher_class = comfy.model_patcher.ModelPatcher if disable_dynamic else comfy.model_patcher.CoreModelPatcher
+    patcher = patcher_class(
+        model,
+        load_device=load_device,
+        offload_device=comfy.model_management.unet_offload_device(),
+    )
+    model.load_model_weights(state_dict, assign=patcher.is_dynamic())
+    if state_dict:
+        raise ValueError(f"SenseNova-U1.5 unused checkpoint keys after load: {sorted(state_dict)[:5]}")
+    patcher.cached_patcher_init = (load_sensenova_model, (model_path, dtype))
+    return patcher
+
+
+def load_sensenova_clip():
+    _validate_tokenizer_assets()
+    target = SenseNovaModelConfig({}).clip_target()
+    return comfy.sd.CLIP(target, parameters=0, state_dict=[])
+
+
+def load_pixel_vae():
+    return comfy.sd.VAE(sd={"pixel_space_vae": torch.tensor(1.0)})

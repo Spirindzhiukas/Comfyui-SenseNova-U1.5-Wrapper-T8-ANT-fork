@@ -1,0 +1,80 @@
+{
+  "1": {
+    "class_type": "SenseNovaU15Loader",
+    "inputs": {
+      "model_name": "SenseNova-U1.5-8B-MoT.safetensors"
+    }
+  },
+  "2": {
+    "class_type": "SenseNovaSamplingOptions",
+    "inputs": {
+      "model": ["1", 0],
+      "shift": 3.0
+    }
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["1", 1],
+      "text": "change the sky to blue"
+    }
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": ["1", 1],
+      "text": ""
+    }
+  },
+  "5": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "reference.png"
+    }
+  },
+  "6": {
+    "class_type": "SenseNovaReferenceImage",
+    "inputs": {
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "image": ["5", 0]
+    }
+  },
+  "7": {
+    "class_type": "EmptySenseNovaLatentImage",
+    "inputs": {
+      "width": 2048,
+      "height": 2048,
+      "batch_size": 1
+    }
+  },
+  "8": {
+    "class_type": "KSampler",
+    "inputs": {
+      "model": ["2", 0],
+      "seed": 0,
+      "steps": 50,
+      "cfg": 4.0,
+      "sampler_name": "euler",
+      "scheduler": "normal",
+      "positive": ["6", 0],
+      "negative": ["6", 1],
+      "latent_image": ["7", 0],
+      "denoise": 1.0
+    }
+  },
+  "9": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["8", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "10": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": ["9", 0],
+      "filename_prefix": "SenseNova-U15-Edit"
+    }
+  }
+}
