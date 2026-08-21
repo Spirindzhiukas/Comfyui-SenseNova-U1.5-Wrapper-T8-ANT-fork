@@ -32,7 +32,7 @@ git clone https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8.git
 ## 下载模型
 
 - [Hugging Face：t8star/SenseNova-U1.5-Comfy](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/)
-- [模型网盘](https://pan.quark.cn/s/c9c267081fbf)
+- [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
 
 下载单文件模型 `SenseNova-U1.5-8B-MoT-T8.safetensors`，放到：
 
@@ -173,7 +173,7 @@ revision：1f6ec60423d29939dde4202fd82ae340b144e280
 - [AI API](https://api.seedance.nz/sign-up?aff=5f4w)
 - [在线 AI 应用](https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121)
 - [ComfyUI 整合包](https://pan.quark.cn/s/264edb7e36bd)
-- [模型网盘](https://pan.quark.cn/s/c9c267081fbf)
+- [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
 - [Hugging Face 主页](https://huggingface.co/t8star)
 
 ## 来源与许可
