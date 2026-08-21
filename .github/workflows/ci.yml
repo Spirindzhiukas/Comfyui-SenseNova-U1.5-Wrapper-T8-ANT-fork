@@ -36,5 +36,19 @@ jobs:
         run: python -m compileall -q .
         working-directory: ComfyUI/custom_nodes/comfyui-sensenova-u15-T8
       - name: Run schema, TOML, example and no-weight tests
-        run: python -m unittest discover -s tests -v
+        run: |
+          python - <<'PY'
+          import sys
+          import unittest
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path.cwd().parents[1]))
+
+          from comfy.cli_args import args
+
+          args.cpu = True
+          suite = unittest.defaultTestLoader.discover("tests")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          raise SystemExit(not result.wasSuccessful())
+          PY
         working-directory: ComfyUI/custom_nodes/comfyui-sensenova-u15-T8
