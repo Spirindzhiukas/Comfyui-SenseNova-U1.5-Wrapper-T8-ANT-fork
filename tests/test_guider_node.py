@@ -80,6 +80,12 @@ class EditGuiderNodeTests(unittest.TestCase):
         self.assertEqual(result[0]["sensenova_reference_images"], [image_1, image_2])
         self.assertEqual(result[1]["sensenova_reference_images"], [image_1, image_2])
 
+    def test_reference_node_autogrow_inputs_have_readable_names(self):
+        images = SenseNovaReferenceImage.define_schema().inputs[2]
+        self.assertEqual(images.display_name, "reference images")
+        self.assertEqual([value.id for value in images.get_all()[1:3]], ["image", "image_2"])
+        self.assertEqual([value.display_name for value in images.get_all()[1:3]], ["reference image", "reference image"])
+
     def test_prefix_cache_is_execution_local_and_cleared(self):
         original_options = {"transformer_options": {}}
         guider = type("Guider", (), {"model_options": original_options})()

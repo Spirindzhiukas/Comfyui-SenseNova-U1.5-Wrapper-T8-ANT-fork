@@ -45,11 +45,11 @@ class ExampleWorkflowTests(unittest.TestCase):
     def test_frontend_edit_and_multi_reference_contracts(self):
         edit = self.load_example("edit_workflow.json")
         edit_reference = next(node for node in edit["nodes"] if node["type"] == "SenseNovaReferenceImage")
-        self.assertEqual([value["name"] for value in edit_reference["inputs"]], ["positive", "negative", "image"])
+        self.assertEqual([value["name"] for value in edit_reference["inputs"]], ["positive", "negative", "images.image"])
 
         multi = self.load_example("multi_reference_edit_workflow.json")
         multi_reference = next(node for node in multi["nodes"] if node["type"] == "SenseNovaReferenceImage")
-        self.assertEqual([value["name"] for value in multi_reference["inputs"][-2:]], ["image", "image_2"])
+        self.assertEqual([value["name"] for value in multi_reference["inputs"][-2:]], ["images.image", "images.image_2"])
         guider = next(node for node in multi["nodes"] if node["type"] == "SenseNovaEditGuider")
         scheduler = next(node for node in multi["nodes"] if node["type"] == "BasicScheduler")
         self.assertEqual(guider["widgets_values"], [4, 2])

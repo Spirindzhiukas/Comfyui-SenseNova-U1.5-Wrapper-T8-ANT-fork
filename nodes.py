@@ -123,8 +123,9 @@ class SenseNovaReferenceImage(io.ComfyNode):
                 io.Conditioning.Input(id="negative"),
                 io.Autogrow.Input(
                     "images",
+                    display_name="reference images",
                     template=io.Autogrow.TemplateNames(
-                        io.Image.Input("image"),
+                        io.Image.Input("image", display_name="reference image"),
                         names=["image"] + [f"image_{index}" for index in range(2, 11)],
                         min=1,
                     ),
