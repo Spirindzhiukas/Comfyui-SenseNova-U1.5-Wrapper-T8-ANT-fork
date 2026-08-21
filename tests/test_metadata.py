@@ -42,7 +42,7 @@ class MetadataTests(unittest.TestCase):
             "edit-workflow.jpg",
             "multi-reference-edit-workflow.jpg",
             "result-t2i-2048.png",
-            "result-multi-reference-512.png",
+            "result-multi-reference-2048.png",
         ):
             with self.subTest(name=name):
                 self.assertGreater((PACKAGE_ROOT / "docs" / "images" / name).stat().st_size, 1024)

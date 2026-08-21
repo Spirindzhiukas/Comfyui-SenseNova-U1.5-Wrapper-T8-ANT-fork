@@ -114,11 +114,13 @@ RandomNoise + KSamplerSelect + Latent├──→ SamplerCustomAdvanced
 
 参数：2048×2048、50 步、CFG 4、shift 3、Euler/normal、seed 42。24 GB 显存实测完成。
 
-### 双参考图编辑
+### 2048×2048 双参考图编辑
 
-![SenseNova 双参考图结果](docs/images/result-multi-reference-512.png)
+[查看原始 2048×2048 PNG](docs/images/result-multi-reference-2048.png)
 
-参数：512×512、50 步、CFG 4、img_cfg 1、shift 3、seed 42。第一张图提供手账插画风格，第二张图提供炸鸡主体。
+![SenseNova 2048 双参考图结果](docs/images/result-multi-reference-2048.png)
+
+参数：2048×2048、50 步、CFG 4、img_cfg 1、shift 3、Euler/normal、seed 42。第一张图提供手账版式和文字密度，第二张图提供炸鸡主体；提示词明确要求标题、材料、三步做法和小贴士。大标题、材料和主要步骤可读，局部小字仍有错字和重叠，本图没有后期修字。24 GB 显存实测完成。
 
 ## KV cache 做了什么
 
@@ -143,7 +145,7 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 - RTX 5090 Laptop 24 GB
 - 64 GB 系统内存
 
-2048×2048、50 步文生图和单图编辑都能在 24 GB 显存下完成。模型加载和卸载还会占用较多系统内存，建议准备 64 GB RAM 和足够的虚拟内存。
+2048×2048、50 步文生图和双参考图编辑都能在 24 GB 显存下完成。模型加载和卸载还会占用较多系统内存，建议准备 64 GB RAM 和足够的虚拟内存。
 
 ## 当前限制
 
