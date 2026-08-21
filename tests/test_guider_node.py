@@ -22,7 +22,7 @@ package = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 
-from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage
+from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, _prefix_cache_sample_wrapper
 
 
 class EditGuiderNodeTests(unittest.TestCase):
@@ -65,8 +65,50 @@ class EditGuiderNodeTests(unittest.TestCase):
             SenseNovaReferenceImage.execute(
                 positive=[],
                 negative=[],
-                image=torch.zeros((2, 16, 16, 3)),
+                images={"image": torch.zeros((2, 16, 16, 3))},
             )
+
+    def test_reference_node_accepts_multiple_named_images(self):
+        image_1 = torch.zeros((1, 16, 16, 3))
+        image_2 = torch.ones((1, 16, 16, 3))
+        with patch("node_helpers.conditioning_set_values", side_effect=lambda conditioning, values, **_kwargs: values):
+            result = SenseNovaReferenceImage.execute(
+                positive=[],
+                negative=[],
+                images={"image": image_1, "image_2": image_2},
+            )
+        self.assertEqual(result[0]["sensenova_reference_images"], [image_1, image_2])
+        self.assertEqual(result[1]["sensenova_reference_images"], [image_1, image_2])
+
+    def test_prefix_cache_is_execution_local_and_cleared(self):
+        original_options = {"transformer_options": {}}
+        guider = type("Guider", (), {"model_options": original_options})()
+        seen_cache = None
+
+        class Executor:
+            class_obj = guider
+
+            def __call__(self, *_args, **_kwargs):
+                nonlocal seen_cache
+                seen_cache = guider.model_options["transformer_options"]["sensenova_prefix_cache"]
+                seen_cache["entry"] = torch.ones(1)
+                return "done"
+
+        self.assertEqual(_prefix_cache_sample_wrapper(Executor()), "done")
+        self.assertEqual(seen_cache, {})
+        self.assertIs(guider.model_options, original_options)
+
+        class FailingExecutor(Executor):
+            def __call__(self, *_args, **_kwargs):
+                nonlocal seen_cache
+                seen_cache = guider.model_options["transformer_options"]["sensenova_prefix_cache"]
+                seen_cache["entry"] = torch.ones(1)
+                raise RuntimeError("cancelled")
+
+        with self.assertRaisesRegex(RuntimeError, "cancelled"):
+            _prefix_cache_sample_wrapper(FailingExecutor())
+        self.assertEqual(seen_cache, {})
+        self.assertIs(guider.model_options, original_options)
 
     def test_empty_latent_rejects_unvalidated_batches(self):
         with self.assertRaisesRegex(ValueError, "batch_size=1"):

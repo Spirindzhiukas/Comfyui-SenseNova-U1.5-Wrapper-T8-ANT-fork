@@ -12,6 +12,18 @@ IM_END_ID = 151645
 USER_ID = 872
 ASSISTANT_ID = 77091
 NEWLINE_ID = 198
+IMAGE_LABEL_IDS = (
+    (1906, 12, 16, 25),
+    (1906, 12, 17, 25),
+    (1906, 12, 18, 25),
+    (1906, 12, 19, 25),
+    (1906, 12, 20, 25),
+    (1906, 12, 21, 25),
+    (1906, 12, 22, 25),
+    (1906, 12, 23, 25),
+    (1906, 12, 24, 25),
+    (1906, 12, 16, 15, 25),
+)
 
 
 def smart_resize(height, width, factor=32, min_pixels=512 * 512, max_pixels=2048 * 2048):
@@ -28,13 +40,13 @@ def smart_resize(height, width, factor=32, min_pixels=512 * 512, max_pixels=2048
     return resized_height, resized_width
 
 
-def preprocess_reference(image):
+def preprocess_reference(image, max_pixels=2048 * 2048):
     if image.ndim != 4 or image.shape[-1] < 3:
         raise ValueError("SenseNova reference image must be IMAGE in [B,H,W,C] layout")
     if image.shape[0] != 1:
         raise ValueError("SenseNova Reference Image accepts one image, not an IMAGE batch")
     image = image[:, :, :, :3].movedim(-1, 1).float()
-    height, width = smart_resize(image.shape[-2], image.shape[-1])
+    height, width = smart_resize(image.shape[-2], image.shape[-1], max_pixels=max_pixels)
     if image.shape[-2:] != (height, width):
         image = F.interpolate(image, size=(height, width), mode="bicubic", align_corners=False)
     mean = image.new_tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1)
@@ -42,21 +54,29 @@ def preprocess_reference(image):
     return (image - mean) / std
 
 
+def preprocess_references(images):
+    max_pixels = min(2048 * 2048, (4096 * 4096) // len(images))
+    return [preprocess_reference(image, max_pixels=max_pixels) for image in images]
+
+
 def _image_tokens(token_height, token_width):
     return [IMAGE_START_ID] + [IMAGE_CONTEXT_ID] * (token_height * token_width) + [IMAGE_END_ID]
 
 
-def conditioned_input_length(input_length, token_height, token_width, image_only=False):
-    image_token_count = token_height * token_width
-    return image_token_count + 11 if image_only else input_length + image_token_count + 3
+def conditioned_input_length(input_length, reference_grids, image_only=False):
+    image_token_count = sum(height * width for height, width in reference_grids)
+    if image_only:
+        return image_token_count + 9 + 2 * len(reference_grids)
+    label_count = sum(len(IMAGE_LABEL_IDS[index]) for index in range(len(reference_grids))) if len(reference_grids) > 1 else 0
+    return input_length + image_token_count + 3 * len(reference_grids) + label_count
 
 
-def condition_input_ids(input_ids, token_height, token_width, image_only=False):
-    tokens = _image_tokens(token_height, token_width)
+def condition_input_ids(input_ids, reference_grids, image_only=False):
+    image_blocks = [_image_tokens(height, width) for height, width in reference_grids]
     if image_only:
         values = (
             [IM_START_ID, USER_ID, NEWLINE_ID]
-            + tokens
+            + [token for block in image_blocks for token in block]
             + [IM_END_ID, NEWLINE_ID, IM_START_ID, ASSISTANT_ID, NEWLINE_ID, IMAGE_START_ID]
         )
         return torch.tensor([values], dtype=torch.long, device=input_ids.device)
@@ -66,11 +86,17 @@ def condition_input_ids(input_ids, token_height, token_width, image_only=False):
     if len(starts) < 3:
         raise ValueError("SenseNova prompt does not match the bundled chat template")
     insert_at = starts[1] + 3
-    values[insert_at:insert_at] = tokens + [NEWLINE_ID]
+    inserted = []
+    for index, block in enumerate(image_blocks):
+        if len(image_blocks) > 1:
+            inserted.extend(IMAGE_LABEL_IDS[index])
+        inserted.extend(block)
+        inserted.append(NEWLINE_ID)
+    values[insert_at:insert_at] = inserted
     return torch.tensor([values], dtype=torch.long, device=input_ids.device)
 
 
-def thw_indexes(input_ids, token_height, token_width):
+def thw_indexes(input_ids, reference_grids):
     values = input_ids[0]
     image_start_shift = torch.cat((torch.zeros(1, dtype=torch.long, device=values.device), (values == IMAGE_START_ID).long()))[:-1]
     not_image = (values != IMAGE_CONTEXT_ID).long()
@@ -78,9 +104,14 @@ def thw_indexes(input_ids, token_height, token_width):
     height_indexes = torch.zeros_like(time_indexes)
     width_indexes = torch.zeros_like(time_indexes)
     selected = values == IMAGE_CONTEXT_ID
-    positions = torch.arange(token_height * token_width, dtype=torch.long, device=values.device)
-    height_indexes[selected] = positions // token_width
-    width_indexes[selected] = positions % token_width
+    height_positions = []
+    width_positions = []
+    for token_height, token_width in reference_grids:
+        positions = torch.arange(token_height * token_width, dtype=torch.long, device=values.device)
+        height_positions.append(positions // token_width)
+        width_positions.append(positions % token_width)
+    height_indexes[selected] = torch.cat(height_positions)
+    width_indexes[selected] = torch.cat(width_positions)
     return torch.stack((time_indexes, height_indexes, width_indexes)).unsqueeze(0)
 
 

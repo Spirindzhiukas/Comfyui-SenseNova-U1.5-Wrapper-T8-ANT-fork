@@ -4,7 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import comfy.ops
 import comfy.patcher_extension
 import comfy.quant_ops
 from comfy.ldm.common_dit import pad_to_patch_size
@@ -215,19 +214,21 @@ class DecoderLayer(nn.Module):
         self.post_attention_layernorm = operations.RMSNorm(HIDDEN_SIZE, eps=1e-6, device=device, dtype=dtype)
         self.post_attention_layernorm_mot_gen = operations.RMSNorm(HIDDEN_SIZE, eps=1e-6, device=device, dtype=dtype)
 
-    def forward(self, prefix, image, prefix_indexes, image_indexes, prefix_mask, transformer_options):
+    def forward_prefix(self, prefix, prefix_indexes, prefix_mask, transformer_options):
         prefix_attention, prefix_key, prefix_value = self.self_attn.forward_prefix(
             self.input_layernorm(prefix), prefix_indexes, prefix_mask, transformer_options
         )
         prefix = prefix + prefix_attention
         prefix = prefix + self.mlp(self.post_attention_layernorm(prefix))
+        return prefix, prefix_key, prefix_value
 
+    def forward_generation(self, image, image_indexes, prefix_key, prefix_value, transformer_options):
         image_attention = self.self_attn.forward_generation(
             self.input_layernorm_mot_gen(image), image_indexes, prefix_key, prefix_value, transformer_options
         )
         image = image + image_attention
         image = image + self.mlp_mot_gen(self.post_attention_layernorm_mot_gen(image))
-        return prefix, image
+        return image
 
 
 class LanguageBackbone(nn.Module):
@@ -293,7 +294,7 @@ class SenseNovaU15(nn.Module):
         context=None,
         transformer_options={},
         text_input_ids=None,
-        reference_image=None,
+        reference_images=None,
         prefix_indexes=None,
         prefix_mask=None,
         **kwargs,
@@ -316,14 +317,36 @@ class SenseNovaU15(nn.Module):
         time_embedding = time_embedding + self.fm_modules["noise_scale_embedder"](scale_timesteps, image.dtype)
         image = image + time_embedding.view(batch, image_length, HIDDEN_SIZE)
 
-        prefix = self.language_model.model.embed_tokens(text_input_ids)
-        prefix_length = prefix.shape[1]
-        if reference_image is not None:
-            reference_image = pad_to_patch_size(reference_image, (MERGED_PATCH_SIZE, MERGED_PATCH_SIZE))
-            reference_embeds = self.vision_model(reference_image)
-            selected = text_input_ids == 151669
-            prefix = prefix.clone()
-            prefix[selected] = reference_embeds.reshape(-1, HIDDEN_SIZE)
+        prefix_length = text_input_ids.shape[1]
+
+        cache = transformer_options.get("sensenova_prefix_cache")
+        uuids = transformer_options.get("uuids")
+        cache_key = None
+        cached_prefix = None
+        if cache is not None and uuids:
+            reference_shapes = tuple(tuple(reference.shape) for reference in reference_images or ())
+            cache_key = (
+                tuple(str(value) for value in uuids),
+                tuple(text_input_ids.shape),
+                reference_shapes,
+                tuple(x.shape),
+                x.dtype,
+                x.device.type,
+                x.device.index,
+            )
+            cached_prefix = cache.get(cache_key)
+
+        prefix = None
+        if cached_prefix is None:
+            prefix = self.language_model.model.embed_tokens(text_input_ids)
+            if reference_images is not None:
+                reference_embeds = []
+                for reference in reference_images:
+                    reference = pad_to_patch_size(reference, (MERGED_PATCH_SIZE, MERGED_PATCH_SIZE))
+                    reference_embeds.append(self.vision_model(reference))
+                selected = text_input_ids == 151669
+                prefix = prefix.clone()
+                prefix[selected] = torch.cat(reference_embeds, dim=1).reshape(-1, HIDDEN_SIZE)
 
         if prefix_indexes is None:
             prefix_positions = torch.arange(prefix_length, dtype=torch.long, device=x.device)
@@ -358,16 +381,29 @@ class SenseNovaU15(nn.Module):
                 )
             )
 
+        prefix_cache_entries = []
         for layer_index, layer in enumerate(self.language_model.model.layers):
             transformer_options["block_index"] = layer_index
-            prefix, image = layer(
-                prefix,
+            if cached_prefix is None:
+                prefix, prefix_key, prefix_value = layer.forward_prefix(
+                    prefix,
+                    prefix_indexes,
+                    prefix_mask,
+                    transformer_options,
+                )
+                prefix_cache_entries.append((prefix_key, prefix_value))
+            else:
+                prefix_key, prefix_value = cached_prefix[layer_index]
+            image = layer.forward_generation(
                 image,
-                prefix_indexes,
                 image_indexes,
-                prefix_mask,
+                prefix_key,
+                prefix_value,
                 transformer_options,
             )
+
+        if cache_key is not None and cached_prefix is None:
+            cache[cache_key] = tuple(prefix_cache_entries)
 
         image = self.language_model.model.norm_mot_gen(image)
         image = image.view(batch, token_height, token_width, HIDDEN_SIZE).permute(0, 3, 1, 2)

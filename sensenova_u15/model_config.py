@@ -8,7 +8,7 @@ import comfy.model_base
 import comfy.supported_models_base
 
 from .model import SenseNovaU15
-from .conditioning import block_causal_mask, condition_input_ids, conditioned_input_length, preprocess_reference, smart_resize, thw_indexes
+from .conditioning import block_causal_mask, condition_input_ids, conditioned_input_length, preprocess_references, smart_resize, thw_indexes
 from .sampling import SenseNovaModelSampling, time_snr_shift
 from .text_encoder import SenseNovaTextEncoder, SenseNovaTokenizer
 
@@ -22,7 +22,7 @@ class SenseNovaBaseModel(comfy.model_base.BaseModel):
             unet_model=SenseNovaU15,
         )
         self.model_sampling = SenseNovaModelSampling(model_config)
-        self.memory_usage_factor_conds = ("reference_image",)
+        self.memory_usage_factor_conds = ("reference_images",)
 
     def process_timestep(self, timestep, **kwargs):
         base_timestep = timestep / self.model_sampling.multiplier
@@ -32,36 +32,35 @@ class SenseNovaBaseModel(comfy.model_base.BaseModel):
         out = super().extra_conds(**kwargs)
         text_input_ids = kwargs.get("text_input_ids")
         if text_input_ids is not None:
-            reference_image = kwargs.get("sensenova_reference_image")
-            if reference_image is not None:
-                reference_image = preprocess_reference(reference_image)
-                token_height = reference_image.shape[-2] // 32
-                token_width = reference_image.shape[-1] // 32
+            reference_images = kwargs.get("sensenova_reference_images")
+            if reference_images is not None:
+                reference_images = preprocess_references(reference_images)
+                reference_grids = [(image.shape[-2] // 32, image.shape[-1] // 32) for image in reference_images]
                 text_input_ids = condition_input_ids(
                     text_input_ids,
-                    token_height,
-                    token_width,
+                    reference_grids,
                     image_only=kwargs.get("sensenova_reference_mode") == "image_only",
                 )
-                indexes = thw_indexes(text_input_ids, token_height, token_width)
+                indexes = thw_indexes(text_input_ids, reference_grids)
                 out["prefix_indexes"] = comfy.conds.CONDRegular(indexes)
                 out["prefix_mask"] = comfy.conds.CONDRegular(block_causal_mask(indexes))
-                out["reference_image"] = comfy.conds.CONDRegular(reference_image)
+                out["reference_images"] = comfy.conds.CONDList(reference_images)
             out["text_input_ids"] = comfy.conds.CONDRegular(text_input_ids)
         return out
 
     def extra_conds_shapes(self, **kwargs):
-        image = kwargs.get("sensenova_reference_image")
-        if image is None:
+        images = kwargs.get("sensenova_reference_images")
+        if images is None:
             return {}
-        height, width = smart_resize(*image.shape[1:3])
-        out = {"reference_image": [image.shape[0], 3, height, width]}
+        max_pixels = min(2048 * 2048, (4096 * 4096) // len(images))
+        resized = [smart_resize(*image.shape[1:3], max_pixels=max_pixels) for image in images]
+        reference_grids = [(height // 32, width // 32) for height, width in resized]
+        out = {"reference_images": [1, 3, sum(height * width for height, width in resized)]}
         text_input_ids = kwargs.get("text_input_ids")
         if text_input_ids is not None:
             length = conditioned_input_length(
                 text_input_ids.shape[1],
-                height // 32,
-                width // 32,
+                reference_grids,
                 image_only=kwargs.get("sensenova_reference_mode") == "image_only",
             )
             out["prefix_mask"] = [1, 1, length, length]

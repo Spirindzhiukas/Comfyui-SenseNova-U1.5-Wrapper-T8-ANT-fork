@@ -32,13 +32,13 @@ def encode(clip, text):
     return clip.encode_from_tokens_scheduled(clip.tokenize(text), show_pbar=False)
 
 
-def attach_reference(conditioning, image, mode):
+def attach_references(conditioning, images, mode):
     import node_helpers
 
     return node_helpers.conditioning_set_values(
         conditioning,
         {
-            "sensenova_reference_image": image,
+            "sensenova_reference_images": images,
             "sensenova_reference_mode": mode,
         },
         append=True,
@@ -66,9 +66,13 @@ def main():
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--oracle", type=Path, required=True)
     parser.add_argument("--custom-edit-guider", action="store_true")
+    parser.add_argument("--disable-prefix-cache", action="store_true")
+    parser.add_argument("--compare-prefix-cache", action="store_true")
     parser.add_argument("--width", type=int)
     parser.add_argument("--height", type=int)
     parser.add_argument("--steps", type=int)
+    parser.add_argument("--cfg", type=float)
+    parser.add_argument("--img-cfg", type=float)
     parser.add_argument("--trace-output", type=Path)
     parser.add_argument("--output-image", type=Path)
     parser.add_argument("--module-trace-output", type=Path)
@@ -77,7 +81,8 @@ def main():
     load_package()
     import comfy.sample
     import comfy.samplers
-    from comfyui_sensenova_u15_t8.nodes import SenseNovaEditGuiderImpl
+    import comfy.patcher_extension
+    from comfyui_sensenova_u15_t8.nodes import SenseNovaEditGuiderImpl, _prefix_cache_sample_wrapper
     from comfyui_sensenova_u15_t8.sensenova_u15.loader import load_sensenova_clip, load_sensenova_model
     from comfyui_sensenova_u15_t8.sensenova_u15.sampling import SenseNovaModelSampling, resolution_noise_scale
 
@@ -103,12 +108,20 @@ def main():
     model_sampling = SenseNovaModelSampling(model.model.model_config)
     model_sampling.set_parameters(shift=oracle.get("shift", 1.0))
     model.add_object_patch("model_sampling", model_sampling)
+    if not args.disable_prefix_cache and not args.compare_prefix_cache:
+        model.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.OUTER_SAMPLE,
+            "sensenova_prefix_cache",
+            _prefix_cache_sample_wrapper,
+        )
     clip = load_sensenova_clip()
     positive = encode(clip, oracle["prompt"])
     negative = encode(clip, "")
     width = args.width or oracle["width"]
     height = args.height or oracle["height"]
     steps = args.steps or oracle["steps"]
+    cfg = args.cfg if args.cfg is not None else oracle.get("cfg", 1.0)
+    img_cfg = args.img_cfg if args.img_cfg is not None else oracle.get("img_cfg", 1.0)
     if args.width is None and args.height is None and args.steps is None:
         scale = resolution_noise_scale(height, width)
         noise = oracle["initial"].float() / scale
@@ -128,56 +141,77 @@ def main():
             }
         )
 
-    if "reference_image" not in oracle:
-        actual = comfy.sample.sample(
-            model,
-            noise,
-            steps,
-            oracle.get("cfg", 1.0),
-            "euler",
-            "normal",
-            positive,
-            negative,
-            latent,
-            callback=callback if args.trace_output else None,
-            disable_pbar=True,
-            seed=oracle["seed"],
-        )
-    else:
-        positive = attach_reference(positive, oracle["reference_image"], "condition")
-        image_condition = attach_reference(negative, oracle["reference_image"], "image_only")
-        img_cfg = oracle.get("img_cfg", 1.0)
-        if args.custom_edit_guider or not math.isclose(img_cfg, 1.0):
-            guider = SenseNovaEditGuiderImpl(model)
-            guider.set_conds(positive, image_condition, negative)
-            guider.set_cfg(oracle.get("cfg", 1.0), img_cfg)
-            sigmas = comfy.samplers.calculate_sigmas(
-                model.get_model_object("model_sampling"), "normal", steps
+    reference_images = oracle.get("reference_images")
+    if reference_images is None and "reference_image" in oracle:
+        reference_images = [oracle["reference_image"]]
+
+    def sample_once(sample_model, sample_callback=None):
+        if reference_images is None:
+            return comfy.sample.sample(
+                sample_model,
+                noise,
+                steps,
+                cfg,
+                "euler",
+                "normal",
+                positive,
+                negative,
+                latent,
+                callback=sample_callback,
+                disable_pbar=True,
+                seed=oracle["seed"],
             )
-            actual = guider.sample(
+
+        if args.custom_edit_guider or not math.isclose(img_cfg, 1.0):
+            guider = SenseNovaEditGuiderImpl(sample_model)
+            guider.set_conds(positive, image_condition, negative)
+            guider.set_cfg(cfg, img_cfg)
+            sigmas = comfy.samplers.calculate_sigmas(
+                sample_model.get_model_object("model_sampling"), "normal", steps
+            )
+            return guider.sample(
                 noise,
                 latent,
                 comfy.samplers.sampler_object("euler"),
                 sigmas,
-                callback=callback if args.trace_output else None,
+                callback=sample_callback,
                 disable_pbar=True,
                 seed=oracle["seed"],
             )
-        else:
-            actual = comfy.sample.sample(
-                model,
-                noise,
-                steps,
-                oracle.get("cfg", 1.0),
-                "euler",
-                "normal",
-                positive,
-                image_condition,
-                latent,
-                callback=callback if args.trace_output else None,
-                disable_pbar=True,
-                seed=oracle["seed"],
-            )
+
+        return comfy.sample.sample(
+            sample_model,
+            noise,
+            steps,
+            cfg,
+            "euler",
+            "normal",
+            positive,
+            image_condition,
+            latent,
+            callback=sample_callback,
+            disable_pbar=True,
+            seed=oracle["seed"],
+        )
+
+    if reference_images is not None:
+        positive = attach_references(positive, reference_images, "condition")
+        image_condition = attach_references(negative, reference_images, "image_only")
+
+    if args.compare_prefix_cache:
+        uncached = sample_once(model)
+        cached_model = model.clone()
+        cached_model.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.OUTER_SAMPLE,
+            "sensenova_prefix_cache",
+            _prefix_cache_sample_wrapper,
+        )
+        actual = sample_once(cached_model, callback if args.trace_output else None)
+        print("prefix_cache_comparison")
+        for name, value in compare(actual, uncached).items():
+            print(f"cache_{name}={value}")
+    else:
+        actual = sample_once(model, callback if args.trace_output else None)
 
     if args.width is not None or args.height is not None or args.steps is not None:
         print(f"actual_shape={tuple(actual.shape)} finite={torch.isfinite(actual).all().item()}")

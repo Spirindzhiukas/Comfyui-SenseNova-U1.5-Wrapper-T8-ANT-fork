@@ -5,6 +5,8 @@ from typing_extensions import override
 import torch
 
 import comfy.model_management
+import comfy.model_patcher
+import comfy.patcher_extension
 import comfy.samplers
 import folder_paths
 import node_helpers
@@ -87,7 +89,25 @@ class SenseNovaSamplingOptions(io.ComfyNode):
         model_sampling = SenseNovaModelSampling(patched.model.model_config)
         model_sampling.set_parameters(shift=shift)
         patched.add_object_patch("model_sampling", model_sampling)
+        patched.add_wrapper_with_key(
+            comfy.patcher_extension.WrappersMP.OUTER_SAMPLE,
+            "sensenova_prefix_cache",
+            _prefix_cache_sample_wrapper,
+        )
         return io.NodeOutput(patched)
+
+
+def _prefix_cache_sample_wrapper(executor, *args, **kwargs):
+    guider = executor.class_obj
+    original_model_options = guider.model_options
+    guider.model_options = comfy.model_patcher.create_model_options_clone(original_model_options)
+    cache = {}
+    guider.model_options.setdefault("transformer_options", {})["sensenova_prefix_cache"] = cache
+    try:
+        return executor(*args, **kwargs)
+    finally:
+        cache.clear()
+        guider.model_options = original_model_options
 
 
 class SenseNovaReferenceImage(io.ComfyNode):
@@ -97,11 +117,19 @@ class SenseNovaReferenceImage(io.ComfyNode):
             node_id="SenseNovaReferenceImage",
             display_name="SenseNova Reference Image",
             category="conditioning/SenseNova",
-            description="Attach one source image for instruction editing. The negative input should encode an empty prompt.",
+            description="Attach 1-10 source images for instruction editing. The negative input should encode an empty prompt.",
             inputs=[
                 io.Conditioning.Input(id="positive"),
                 io.Conditioning.Input(id="negative"),
-                io.Image.Input(id="image"),
+                io.Autogrow.Input(
+                    "images",
+                    template=io.Autogrow.TemplateNames(
+                        io.Image.Input("image"),
+                        names=["image"] + [f"image_{index}" for index in range(2, 11)],
+                        min=1,
+                    ),
+                    tooltip="Reference images. Use one image for normal editing or up to ten images for multi-reference editing.",
+                ),
             ],
             outputs=[
                 io.Conditioning.Output(display_name="positive"),
@@ -110,13 +138,15 @@ class SenseNovaReferenceImage(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, *, positive, negative, image):
-        if image.ndim != 4 or image.shape[0] != 1 or image.shape[-1] < 3:
-            raise ValueError("SenseNova Reference Image requires one IMAGE with at least three channels")
+    def execute(cls, *, positive, negative, images):
+        references = [images[name] for name in ["image"] + [f"image_{index}" for index in range(2, 11)] if name in images]
+        for image in references:
+            if image.ndim != 4 or image.shape[0] != 1 or image.shape[-1] < 3:
+                raise ValueError("Each SenseNova reference input requires one IMAGE with at least three channels")
         positive = node_helpers.conditioning_set_values(
             positive,
             {
-                "sensenova_reference_image": image,
+                "sensenova_reference_images": references,
                 "sensenova_reference_mode": "condition",
             },
             append=True,
@@ -124,7 +154,7 @@ class SenseNovaReferenceImage(io.ComfyNode):
         negative = node_helpers.conditioning_set_values(
             negative,
             {
-                "sensenova_reference_image": image,
+                "sensenova_reference_images": references,
                 "sensenova_reference_mode": "image_only",
             },
             append=True,
