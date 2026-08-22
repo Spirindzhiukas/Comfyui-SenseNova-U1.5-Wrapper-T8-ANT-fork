@@ -16,9 +16,20 @@ class MetadataTests(unittest.TestCase):
     def test_registry_metadata(self):
         metadata = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["name"], "sensenova-u15-t8")
+        self.assertEqual(metadata["project"]["version"], "1.3.1")
         self.assertEqual(metadata["tool"]["comfy"]["PublisherId"], "t8star")
         self.assertEqual(metadata["tool"]["comfy"]["DisplayName"], "SenseNova U1.5 (T8)")
         self.assertTrue(metadata["project"]["urls"]["Model Download"].startswith("https://huggingface.co/t8star/"))
+        self.assertEqual(
+            metadata["project"]["urls"]["Repository"],
+            "https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8",
+        )
+
+    def test_frontend_extension_is_packaged(self):
+        extension = (PACKAGE_ROOT / "web" / "sensenova_reference_labels_v131e.js").read_text(encoding="utf-8")
+        self.assertIn("SenseNovaReferenceImage", extension)
+        self.assertIn("migrateLegacyReferenceInputs", extension)
+        self.assertIn('WEB_DIRECTORY = "./web"', (PACKAGE_ROOT / "__init__.py").read_text(encoding="utf-8"))
 
     def test_all_examples_are_valid_json(self):
         examples = sorted((PACKAGE_ROOT / "examples").glob("*.json"))

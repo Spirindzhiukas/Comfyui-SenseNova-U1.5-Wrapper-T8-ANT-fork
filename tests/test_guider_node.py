@@ -22,7 +22,7 @@ package = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 
-from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaStructuredEditPrompt, SenseNovaU15EightStepLoRA, _prefix_cache_sample_wrapper
+from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaReferenceImageAdvanced, SenseNovaStructuredEditPrompt, SenseNovaU15EightStepLoRA, _prefix_cache_sample_wrapper
 
 
 class EditGuiderNodeTests(unittest.TestCase):
@@ -65,7 +65,7 @@ class EditGuiderNodeTests(unittest.TestCase):
             SenseNovaReferenceImage.execute(
                 positive=[],
                 negative=[],
-                images={"image": torch.zeros((2, 16, 16, 3))},
+                **{"Image-1": torch.zeros((2, 16, 16, 3))},
             )
 
     def test_reference_node_accepts_multiple_named_images(self):
@@ -75,16 +75,22 @@ class EditGuiderNodeTests(unittest.TestCase):
             result = SenseNovaReferenceImage.execute(
                 positive=[],
                 negative=[],
-                images={"image": image_1, "image_2": image_2},
+                **{"Image-1": image_1, "Image-2": image_2},
             )
         self.assertEqual(result[0]["sensenova_reference_images"], [image_1, image_2])
         self.assertEqual(result[1]["sensenova_reference_images"], [image_1, image_2])
 
-    def test_reference_node_autogrow_inputs_have_readable_names(self):
-        images = SenseNovaReferenceImage.define_schema().inputs[2]
-        self.assertEqual(images.display_name, "reference images")
-        self.assertEqual([value.id for value in images.get_all()[1:3]], ["image", "image_2"])
-        self.assertEqual([value.display_name for value in images.get_all()[1:3]], ["reference image", "reference image"])
+    def test_reference_nodes_separate_common_and_large_multi_reference_inputs(self):
+        common_inputs = [
+            value for value in SenseNovaReferenceImage.define_schema().inputs if value.id.startswith("Image-")
+        ]
+        advanced_inputs = [
+            value for value in SenseNovaReferenceImageAdvanced.define_schema().inputs if value.id.startswith("Image-")
+        ]
+        self.assertEqual([value.id for value in common_inputs], ["Image-1", "Image-2"])
+        self.assertEqual([value.id for value in advanced_inputs], [f"Image-{index}" for index in range(1, 11)])
+        self.assertFalse(common_inputs[0].optional)
+        self.assertTrue(common_inputs[1].optional)
 
     def test_prefix_cache_is_execution_local_and_cleared(self):
         original_options = {"transformer_options": {}}
@@ -165,6 +171,7 @@ class EditGuiderNodeTests(unittest.TestCase):
                 "EmptySenseNovaLatentImage": 1,
                 "SenseNovaSamplingOptions": 1,
                 "SenseNovaReferenceImage": 2,
+                "SenseNovaReferenceImageAdvanced": 2,
                 "SenseNovaStructuredEditPrompt": 1,
                 "SenseNovaEditGuider": 1,
             },

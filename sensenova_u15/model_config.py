@@ -13,27 +13,23 @@ from .sampling import SenseNovaModelSampling, time_snr_shift
 from .text_encoder import SenseNovaTextEncoder, SenseNovaTokenizer
 
 
-def scale_batched_condition_shapes(input_shape, cond_shapes):
-    """Account for ComfyUI repeating reference conditions across the latent batch.
+class CONDSharedRegular(comfy.conds.CONDRegular):
+    """Keep a prefix tensor at one copy per guidance branch.
 
-    ``estimate_memory`` supplies a doubled latent batch for its full estimate and
-    one condition shape per branch.  Its minimum estimate supplies the real
-    latent batch and only the largest branch.  Both cases need the underlying
-    batch-one reference tensors and masks scaled to the generation batch.
+    ComfyUI normally repeats every condition to the latent batch. SenseNova's
+    text/reference prefix is identical for all generated variants, so the model
+    computes it once and expands only the much smaller per-layer KV tensors.
     """
-    branch_count = max(
-        len(cond_shapes.get("reference_images", ())),
-        len(cond_shapes.get("prefix_mask", ())),
-    )
-    if branch_count == 0:
-        return cond_shapes
-    condition_batch = input_shape[0] if branch_count == 1 else max(1, input_shape[0] // 2)
-    scaled = dict(cond_shapes)
-    for name in ("reference_images", "prefix_mask"):
-        shapes = cond_shapes.get(name)
-        if shapes:
-            scaled[name] = [[condition_batch, *shape[1:]] for shape in shapes]
-    return scaled
+
+    def process_cond(self, batch_size, **kwargs):
+        return self._copy_with(self.cond)
+
+
+class CONDSharedList(comfy.conds.CONDList):
+    """List counterpart to :class:`CONDSharedRegular` for reference images."""
+
+    def process_cond(self, batch_size, **kwargs):
+        return self._copy_with(self.cond)
 
 
 class SenseNovaBaseModel(comfy.model_base.BaseModel):
@@ -65,10 +61,10 @@ class SenseNovaBaseModel(comfy.model_base.BaseModel):
                     image_only=kwargs.get("sensenova_reference_mode") == "image_only",
                 )
                 indexes = thw_indexes(text_input_ids, reference_grids)
-                out["prefix_indexes"] = comfy.conds.CONDRegular(indexes)
-                out["prefix_mask"] = comfy.conds.CONDRegular(block_causal_mask(indexes))
-                out["reference_images"] = comfy.conds.CONDList(reference_images)
-            out["text_input_ids"] = comfy.conds.CONDRegular(text_input_ids)
+                out["prefix_indexes"] = CONDSharedRegular(indexes)
+                out["prefix_mask"] = CONDSharedRegular(block_causal_mask(indexes))
+                out["reference_images"] = CONDSharedList(reference_images)
+            out["text_input_ids"] = CONDSharedRegular(text_input_ids)
         return out
 
     def extra_conds_shapes(self, **kwargs):
@@ -90,7 +86,6 @@ class SenseNovaBaseModel(comfy.model_base.BaseModel):
         return out
 
     def memory_required(self, input_shape, cond_shapes={}):
-        cond_shapes = scale_batched_condition_shapes(input_shape, cond_shapes)
         memory = super().memory_required(input_shape, cond_shapes)
         mask_shapes = cond_shapes.get("prefix_mask", ())
         return memory + sum(math.prod(shape) * 4 for shape in mask_shapes)

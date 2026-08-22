@@ -141,6 +141,24 @@ def _prefix_cache_sample_wrapper(executor, *args, **kwargs):
         guider.model_options = original_model_options
 
 
+def _reference_image_inputs(max_images):
+    return [
+        io.Image.Input(
+            id=f"Image-{index}",
+            display_name=f"参考图 {index} (Image-{index})",
+            optional=index > 1,
+            tooltip=(
+                "Main/source image. In a garment edit, connect the person here."
+                if index == 1
+                else "Optional second reference. In a garment edit, connect the clothing here."
+                if index == 2
+                else f"Optional reference image {index}."
+            ),
+        )
+        for index in range(1, max_images + 1)
+    ]
+
+
 class SenseNovaReferenceImage(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -148,20 +166,11 @@ class SenseNovaReferenceImage(io.ComfyNode):
             node_id="SenseNovaReferenceImage",
             display_name="SenseNova Reference Image",
             category="conditioning/SenseNova",
-            description="Attach 1-10 source images for instruction editing. The negative input should encode an empty prompt.",
+            description="Attach one or two source images for instruction editing. Use the 1-10 node for larger reference sets.",
             inputs=[
                 io.Conditioning.Input(id="positive"),
                 io.Conditioning.Input(id="negative"),
-                io.Autogrow.Input(
-                    "images",
-                    display_name="reference images",
-                    template=io.Autogrow.TemplateNames(
-                        io.Image.Input("image", display_name="reference image"),
-                        names=["image"] + [f"image_{index}" for index in range(2, 11)],
-                        min=1,
-                    ),
-                    tooltip="Reference images. Use one image for normal editing or up to ten images for multi-reference editing.",
-                ),
+                *_reference_image_inputs(2),
             ],
             outputs=[
                 io.Conditioning.Output(display_name="positive"),
@@ -170,8 +179,17 @@ class SenseNovaReferenceImage(io.ComfyNode):
         )
 
     @classmethod
-    def execute(cls, *, positive, negative, images):
-        references = [images[name] for name in ["image"] + [f"image_{index}" for index in range(2, 11)] if name in images]
+    def execute(cls, *, positive, negative, images=None, **kwargs):
+        # ``images`` keeps direct-call compatibility with the former Autogrow
+        # implementation. Frontend workflows use the explicit Image-N inputs.
+        if images is not None:
+            references = [
+                images[name]
+                for name in ["image"] + [f"image_{index}" for index in range(2, 11)]
+                if name in images
+            ]
+        else:
+            references = [kwargs[f"Image-{index}"] for index in range(1, 11) if f"Image-{index}" in kwargs]
         for image in references:
             if image.ndim != 4 or image.shape[0] != 1 or image.shape[-1] < 3:
                 raise ValueError("Each SenseNova reference input requires one IMAGE with at least three channels")
@@ -192,6 +210,26 @@ class SenseNovaReferenceImage(io.ComfyNode):
             append=True,
         )
         return io.NodeOutput(positive, negative)
+
+
+class SenseNovaReferenceImageAdvanced(SenseNovaReferenceImage):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaReferenceImageAdvanced",
+            display_name="SenseNova Reference Images (1-10)",
+            category="conditioning/SenseNova",
+            description="Attach 1-10 source images for advanced multi-reference editing.",
+            inputs=[
+                io.Conditioning.Input(id="positive"),
+                io.Conditioning.Input(id="negative"),
+                *_reference_image_inputs(10),
+            ],
+            outputs=[
+                io.Conditioning.Output(display_name="positive"),
+                io.Conditioning.Output(display_name="image_condition"),
+            ],
+        )
 
 
 class SenseNovaStructuredEditPrompt(io.ComfyNode):
@@ -377,6 +415,7 @@ class SenseNovaExtension(ComfyExtension):
             EmptySenseNovaLatentImage,
             SenseNovaSamplingOptions,
             SenseNovaReferenceImage,
+            SenseNovaReferenceImageAdvanced,
             SenseNovaStructuredEditPrompt,
             SenseNovaEditGuider,
         ]

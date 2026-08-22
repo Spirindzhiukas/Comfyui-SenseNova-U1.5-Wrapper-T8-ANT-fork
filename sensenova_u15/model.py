@@ -23,6 +23,29 @@ MERGED_PATCH_SIZE = 32
 VOCAB_SIZE = 151936
 
 
+def _generation_batch_size(total_batch, prefix_batch):
+    if prefix_batch < 1 or total_batch < 1 or total_batch % prefix_batch != 0:
+        raise ValueError(
+            "SenseNova generation batch must be a positive multiple of the prefix batch "
+            f"(generation={total_batch}, prefix={prefix_batch})"
+        )
+    return total_batch // prefix_batch
+
+
+def _expand_prefix_batch(value, generation_batch):
+    """Repeat each guidance branch's prefix KV for its generated variants."""
+    if generation_batch == 1:
+        return value
+    if generation_batch < 1:
+        raise ValueError("SenseNova generation batch multiplier must be positive")
+    prefix_batch = value.shape[0]
+    return (
+        value.unsqueeze(1)
+        .expand(prefix_batch, generation_batch, *value.shape[1:])
+        .reshape(prefix_batch * generation_batch, *value.shape[1:])
+    )
+
+
 def _apply_llm_rope(query, key, positions, theta):
     dim = query.shape[-1]
     frequencies = theta ** (-torch.arange(0, dim, 2, dtype=torch.float32, device=query.device) / dim)
@@ -305,6 +328,17 @@ class SenseNovaU15(nn.Module):
         original_height, original_width = x.shape[-2:]
         x = pad_to_patch_size(x, (MERGED_PATCH_SIZE, MERGED_PATCH_SIZE))
         batch, _, height, width = x.shape
+        prefix_batch = text_input_ids.shape[0]
+        generation_batch = _generation_batch_size(batch, prefix_batch)
+        if reference_images is not None:
+            invalid_reference_batches = [
+                tuple(reference.shape) for reference in reference_images if reference.shape[0] != prefix_batch
+            ]
+            if invalid_reference_batches:
+                raise ValueError(
+                    "SenseNova reference batch must match the text prefix batch; got "
+                    f"text={prefix_batch}, references={invalid_reference_batches}"
+                )
         token_height = height // MERGED_PATCH_SIZE
         token_width = width // MERGED_PATCH_SIZE
         image_length = token_height * token_width
@@ -362,6 +396,7 @@ class SenseNovaU15(nn.Module):
         else:
             prefix_indexes = prefix_indexes.transpose(0, 1)
             image_time = prefix_indexes[0].amax(dim=-1) + 1
+            image_time = image_time.repeat_interleave(generation_batch)
 
         image_positions = torch.arange(image_length, dtype=torch.long, device=x.device)
         if torch.is_tensor(image_time):
@@ -394,11 +429,13 @@ class SenseNovaU15(nn.Module):
                 prefix_cache_entries.append((prefix_key, prefix_value))
             else:
                 prefix_key, prefix_value = cached_prefix[layer_index]
+            generation_prefix_key = _expand_prefix_batch(prefix_key, generation_batch)
+            generation_prefix_value = _expand_prefix_batch(prefix_value, generation_batch)
             image = layer.forward_generation(
                 image,
                 image_indexes,
-                prefix_key,
-                prefix_value,
+                generation_prefix_key,
+                generation_prefix_value,
                 transformer_options,
             )
 

@@ -1,6 +1,6 @@
 # SenseNova-U1.5 ComfyUI 节点
 
-[![CI](https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml/badge.svg)](https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml)
+[![CI](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml/badge.svg)](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml)
 
 这是 SenseNova-U1.5 的 ComfyUI 原生节点。模型、采样器、调度器、显存卸载和工作流都走 ComfyUI 管道，支持：
 
@@ -28,7 +28,7 @@
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8.git
+git clone https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8.git
 ```
 
 本项目没有额外的 Python 依赖。
@@ -160,7 +160,7 @@ LoRA 强度保持 `1`。这个 LoRA 是官方发布的快速文生图适配器�
 
 ### 多参考图和自定义引导
 
-`SenseNova Reference Image` 可以连接 1～10 张图。图像顺序就是提示词中的 `Image-1`、`Image-2`。人物换装时，`Image-1` 放人物主图，`Image-2` 放服装图。
+普通的 `SenseNova Reference Image` 节点只显示 `Image-1` 和可选的 `Image-2`，不会再多出一个容易误接的空白第三插槽。需要 3～10 张图时，改用 `SenseNova Reference Images (1-10)` 节点。图像顺序就是提示词中的 `Image-1`、`Image-2`。人物换装时，`Image-1` 放人物主图，`Image-2` 放服装图。旧版工作流中的 `images.image` 名称会在导入时自动迁移；旧工作流使用 3 张以上参考图时，也会自动切换到 1～10 张版本。
 
 复杂任务不要只写“让她穿上这件衣服”。可以使用 `SenseNova Structured Edit Prompt` 节点，把要求拆成四项：主要修改、每张参考图的职责、必须保持的内容、禁止出现的内容；也可以直接照下面的格式写进 `CLIP Text Encode`：
 
@@ -229,7 +229,7 @@ RandomNoise + KSamplerSelect + Latent├──→ SamplerCustomAdvanced
 
 ## KV cache 做了什么
 
-SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampling Options` 会在一次采样任务内缓存它们，后续 step 直接复用，避免重复计算参考图。
+SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampling Options` 会在一次采样任务内缓存它们，后续 step 直接复用，避免重复计算参考图。批量生成时，文字和参考图 prefix 也只按每个引导分支计算一份，再把每层较小的 KV 扩展到各个结果，不会把整套参考图编码重复 `batch_size` 次。
 
 缓存只存在于当前任务中；任务完成、报错或取消时都会清空，不会跨任务保存，也不会偷偷占用长期显存。缓存与无缓存的三路编辑 A/B 测试结果逐元素一致。
 
