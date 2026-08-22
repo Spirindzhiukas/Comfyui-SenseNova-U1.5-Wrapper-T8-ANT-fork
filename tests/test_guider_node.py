@@ -22,7 +22,7 @@ package = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 
-from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaU15EightStepLoRA, _prefix_cache_sample_wrapper
+from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaStructuredEditPrompt, SenseNovaU15EightStepLoRA, _prefix_cache_sample_wrapper
 
 
 class EditGuiderNodeTests(unittest.TestCase):
@@ -116,9 +116,43 @@ class EditGuiderNodeTests(unittest.TestCase):
         self.assertEqual(seen_cache, {})
         self.assertIs(guider.model_options, original_options)
 
-    def test_empty_latent_rejects_unvalidated_batches(self):
-        with self.assertRaisesRegex(ValueError, "batch_size=1"):
-            EmptySenseNovaLatentImage.execute(width=64, height=64, batch_size=2)
+    def test_empty_latent_builds_real_batches(self):
+        result = EmptySenseNovaLatentImage.execute(width=64, height=96, batch_size=3)
+        self.assertEqual(tuple(result[0]["samples"].shape), (3, 3, 96, 64))
+        batch_input = EmptySenseNovaLatentImage.define_schema().inputs[2]
+        self.assertEqual((batch_input.min, batch_input.max), (1, 16))
+
+    def test_structured_prompt_node_outputs_plain_comfy_string(self):
+        result = SenseNovaStructuredEditPrompt.execute(
+            instruction="把外套改成蓝色",
+            image_roles="参考图是待编辑主图",
+            preserve="保持人物身份",
+            avoid="不要改变背景",
+        )
+        self.assertIsInstance(result[0], str)
+        self.assertIn("把外套改成蓝色", result[0])
+
+    def test_cfg_interval_skips_extra_branches(self):
+        self.guider.set_cfg(4.0, 2.0, "none", 0.5, 1.0)
+
+        def calc_cond_batch(_model, conds, *_args, **_kwargs):
+            return [self.outputs[id(cond)] for cond in conds]
+
+        with patch("comfy.samplers.calc_cond_batch", side_effect=calc_cond_batch) as mocked:
+            actual = self.guider.predict_noise(torch.zeros(1), torch.tensor([0.9]))
+        torch.testing.assert_close(actual, self.outputs[id(self.positive)])
+        self.assertEqual(mocked.call_count, 1)
+
+    def test_cfg_interval_uses_inclusive_comfy_denoising_progress(self):
+        self.guider.set_cfg(4.0, 1.0, "none", 0.25, 0.75)
+        self.assertTrue(self.guider._uses_cfg(torch.tensor([0.75])))
+        self.assertTrue(self.guider._uses_cfg(torch.tensor([0.25])))
+        self.assertFalse(self.guider._uses_cfg(torch.tensor([0.751])))
+        self.assertFalse(self.guider._uses_cfg(torch.tensor([0.249])))
+
+        self.guider.set_cfg(4.0, 1.0, "none", 0.0, 0.5)
+        self.assertTrue(self.guider._uses_cfg(torch.tensor([1.0])))
+        self.assertFalse(self.guider._uses_cfg(torch.tensor([0.25])))
 
     def test_extension_has_fixed_node_outputs(self):
         nodes = asyncio.run(SenseNovaExtension().get_node_list())
@@ -131,6 +165,7 @@ class EditGuiderNodeTests(unittest.TestCase):
                 "EmptySenseNovaLatentImage": 1,
                 "SenseNovaSamplingOptions": 1,
                 "SenseNovaReferenceImage": 2,
+                "SenseNovaStructuredEditPrompt": 1,
                 "SenseNovaEditGuider": 1,
             },
         )

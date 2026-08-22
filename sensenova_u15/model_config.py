@@ -13,6 +13,29 @@ from .sampling import SenseNovaModelSampling, time_snr_shift
 from .text_encoder import SenseNovaTextEncoder, SenseNovaTokenizer
 
 
+def scale_batched_condition_shapes(input_shape, cond_shapes):
+    """Account for ComfyUI repeating reference conditions across the latent batch.
+
+    ``estimate_memory`` supplies a doubled latent batch for its full estimate and
+    one condition shape per branch.  Its minimum estimate supplies the real
+    latent batch and only the largest branch.  Both cases need the underlying
+    batch-one reference tensors and masks scaled to the generation batch.
+    """
+    branch_count = max(
+        len(cond_shapes.get("reference_images", ())),
+        len(cond_shapes.get("prefix_mask", ())),
+    )
+    if branch_count == 0:
+        return cond_shapes
+    condition_batch = input_shape[0] if branch_count == 1 else max(1, input_shape[0] // 2)
+    scaled = dict(cond_shapes)
+    for name in ("reference_images", "prefix_mask"):
+        shapes = cond_shapes.get(name)
+        if shapes:
+            scaled[name] = [[condition_batch, *shape[1:]] for shape in shapes]
+    return scaled
+
+
 class SenseNovaBaseModel(comfy.model_base.BaseModel):
     def __init__(self, model_config, device=None):
         super().__init__(
@@ -67,6 +90,7 @@ class SenseNovaBaseModel(comfy.model_base.BaseModel):
         return out
 
     def memory_required(self, input_shape, cond_shapes={}):
+        cond_shapes = scale_batched_condition_shapes(input_shape, cond_shapes)
         memory = super().memory_required(input_shape, cond_shapes)
         mask_shapes = cond_shapes.get("prefix_mask", ())
         return memory + sum(math.prod(shape) * 4 for shape in mask_shapes)

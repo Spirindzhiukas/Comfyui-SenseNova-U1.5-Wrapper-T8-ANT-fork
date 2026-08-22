@@ -45,6 +45,7 @@ class MetadataTests(unittest.TestCase):
             "result-t2i-8step-2048.png",
             "result-t2i-2048.png",
             "result-multi-reference-2048.png",
+            "result-garment-edit-2048.png",
         ):
             with self.subTest(name=name):
                 self.assertGreater((PACKAGE_ROOT / "docs" / "images" / name).stat().st_size, 1024)

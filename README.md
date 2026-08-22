@@ -7,10 +7,12 @@
 - 文生图
 - 单图编辑
 - 1～10 张参考图编辑
+- 同一提示词/参考图一次生成 1～16 个不同结果
 - 普通 `KSampler`
 - U1.5 Final 和 U1.5 SFT 两套官方权重
 - 官方 U1.5 8-step LoRA（底层使用 ComfyUI 原生 LoRA/ModelPatcher 管道）
-- 自定义 `img_cfg` 的三路引导
+- 自定义 `img_cfg` 的三路引导、CFG Norm 和 CFG 生效区间
+- 用明确的“修改 / 参考图职责 / 保持 / 禁止”结构整理复杂编辑提示词
 - 执行期间的文本/参考图 prefix KV cache
 
 节点只读取本地模型，运行时不会联网下载文件。
@@ -75,9 +77,10 @@ Final 和 SFT 都是 SenseNova U1.5，本节点都支持 50 步文生图和图�
 下面都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。没有 API 工作流。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
 
 - [文生图工作流](examples/t2i_workflow.json)
+- [批量文生图工作流（默认一次 2 张）](examples/batch_t2i_workflow.json)
 - [8-step LoRA 文生图工作流](examples/t2i_8step_workflow.json)
 - [普通编辑工作流（img_cfg=1）](examples/edit_workflow.json)
-- [多参考三路编辑工作流](examples/multi_reference_edit_workflow.json)
+- [稳定多参考编辑工作流（人物换装案例）](examples/multi_reference_edit_workflow.json)
 - [SFT 文生图工作流](examples/sft_t2i_workflow.json)
 - [SFT 图像编辑工作流](examples/sft_edit_workflow.json)
 
@@ -92,6 +95,19 @@ sampler: euler
 scheduler: normal
 denoise: 1
 ```
+
+复杂编辑建议在 `SenseNova Edit Guider` 中先用：
+
+```text
+CFG: 4
+img_cfg: 1
+cfg_norm: global
+cfg_interval: 0 → 1
+```
+
+`global` 会把过强的引导幅度拉回正向条件的范围，通常能减轻高饱和、过度锐化和主体漂移；如果结果变得太保守，再切回 `none`。`channel` 按 32×32 生成 token 分别归一化，适合局部区域容易过冲的场景。
+
+`cfg_interval` 使用 ComfyUI 的归一化去噪进度，`0` 是第一步、`1` 是最后一步，起止点都包含在区间内。这里有意让 start 和 end 始终都生效，避免官方参考代码在 `start=0` 时忽略 end 的边界问题；保持 `0 → 1` 就是官方默认的全程 CFG。
 
 8-step LoRA 请用官方参数：
 
@@ -118,6 +134,14 @@ Loader → Sampling Options → KSampler → VAE Decode → Save Image
 
 `MODEL` 必须先经过 `SenseNova Sampling Options`，`shift` 保持 `3`。
 
+### 批量生成
+
+把 `Empty SenseNova Pixel Latent` 的 `batch_size` 改成 `2～16`，同一个提示词会产生多张不同结果，`Save Image` 会逐张保存。批量编辑也走同一接口，所有结果共用同一组参考图；目前完整实测范围是 `512×512、batch_size=2`，更大的编辑批量需要根据参考图数量和显存逐步增加。
+
+显存开销会随批量增加。示例工作流默认用 `768×768、batch_size=2`；不要直接用 `2048×2048、batch_size=16`。24 GB 显存建议从 `512/768、batch_size=2` 开始。
+
+双参考换装的 `512×512、batch_size=2、50 步` 完整编辑实测用时约 495 秒，两张结果不同且都遵守换装要求；任务期间整张显卡显存采样峰值为 22,986 MiB。
+
 ### 8-step LoRA 文生图
 
 8-step 工作流使用本项目的保护节点，内部仍走 ComfyUI 原生 LoRA 映射和 `ModelPatcher`：
@@ -134,14 +158,17 @@ LoRA 强度保持 `1`。这个 LoRA 是官方发布的快速文生图适配器�
 
 参考图要接到 `SenseNova Reference Image`，不要把参考图当作 latent。`img_cfg=1` 时，可以继续用普通 `KSampler`；把节点输出的 `image_condition` 接到 KSampler 的 negative。
 
-### 多参考图和三路编辑
+### 多参考图和自定义引导
 
-![SenseNova 多参考三路编辑工作流](docs/images/multi-reference-edit-workflow.jpg)
+`SenseNova Reference Image` 可以连接 1～10 张图。图像顺序就是提示词中的 `Image-1`、`Image-2`。人物换装时，`Image-1` 放人物主图，`Image-2` 放服装图。
 
-`SenseNova Reference Image` 可以连接 1～10 张图。提示词里可以直接写 `Image-1`、`Image-2`，例如：
+复杂任务不要只写“让她穿上这件衣服”。可以使用 `SenseNova Structured Edit Prompt` 节点，把要求拆成四项：主要修改、每张参考图的职责、必须保持的内容、禁止出现的内容；也可以直接照下面的格式写进 `CLIP Text Encode`：
 
 ```text
-Use Image-1 as the illustration style and Image-2 as the food subject.
+【主要修改】让 Image-1 的人物穿上 Image-2 的服装。
+【参考图职责】Image-1 只提供人物；Image-2 只提供服装，不复制人台和背景。
+【必须保持】保持 Image-1 的脸、姿势、光线、背景和画幅不变。
+【禁止出现】不要增加第二个人，不要改变未指定区域。
 ```
 
 当 `img_cfg` 不是 1 时，要使用 `SenseNova Edit Guider` 和 ComfyUI 自带的 `SamplerCustomAdvanced`。最重要的一点：`Sampling Options` 输出的同一个 MODEL，要同时连接 `Edit Guider` 和 `BasicScheduler`。
@@ -154,11 +181,19 @@ RandomNoise + KSamplerSelect + Latent├──→ SamplerCustomAdvanced
                                      ┘
 ```
 
-节点会按官方规则给每张图插入 `Image-1`、`Image-2` 等标签，并分别处理尺寸，不会把多张图片简单拼接。
+节点会按官方规则给多张图插入 `Image-1`、`Image-2` 等标签，并分别处理尺寸，不会把多张图片简单拼接。稳定工作流已经使用 `CFG 4、img_cfg 1、global CFG Norm`；它优先保留人物身份和原始构图，不会为了“改得更多”盲目把 `img_cfg` 拉高。
 
 ## 实际结果
 
 下面图片都由本节点生成，参数不是后期调色结果。
+
+### 2048×2048 双参考人物换装
+
+[查看原始 2048×2048 PNG](docs/images/result-garment-edit-2048.png)
+
+![SenseNova U1.5 双参考人物换装](docs/images/result-garment-edit-2048.png)
+
+参数：Final 单文件底模、2048×2048、50 步、CFG 4、img_cfg 1、global CFG Norm、shift 3、Euler/normal、seed 31082026。Image-1 提供人物、脸、姿势和背景，Image-2 只提供黑白裙装；输出保留了托腮手势与室内构图，并迁移了白色围裙、荷叶边、蝴蝶结和袖口。没有后期修图，RTX 5090 Laptop 24 GB 上任务约 506 秒完成。
 
 ### U1.5 SFT：2048×2048、50 步文字密集文生图
 
@@ -204,25 +239,25 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 
 - `CFG` 先用 4，不满意再试 3～3.5
 - `img_cfg` 先保持 1
+- 复杂编辑或画面过冲时把 `cfg_norm` 改成 `global`
 - 提示词加入 `natural colors`、`restrained color grading`
 
 ## 运行要求
 
 当前实测环境：
 
-- ComfyUI `v0.31.0-8`，commit `cbbc9dab1f03d0d9a6caa8a8be7d77a7e37e1e44`
+- ComfyUI `v0.33.0`
 - NVIDIA CUDA + BF16
 - RTX 5090 Laptop 24 GB
 - 64 GB 系统内存
 
-2048×2048、50 步文生图和双参考图编辑都能在 24 GB 显存下完成。模型加载和卸载还会占用较多系统内存，建议准备 64 GB RAM 和足够的虚拟内存。
+2048×2048、50 步文生图和双参考图编辑，以及 `512×512、batch_size=2` 的完整模型批量执行，都能在 24 GB 显存下完成。模型加载和卸载还会占用较多系统内存，建议准备 64 GB RAM 和足够的虚拟内存。
 
 ## 当前限制
 
-- batch size 只支持 1
 - 只验证了 NVIDIA CUDA + BF16
 - 不支持运行时自动下载模型
-- 量化、CFG norm、bbox/marker 和 think mode 暂未开放
+- 量化、bbox/marker 和 think mode 暂未开放
 - 复杂主体替换、多区域或多约束编辑可能出现内容漂移
 - FP16、ROCm、MPS、DirectML、XPU、NPU 暂未验证
 
