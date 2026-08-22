@@ -30,6 +30,8 @@ class FakeCheckpoint:
         self._keys = keys
         self.tensor = FakeSlice(shape, dtype)
         self._metadata = metadata or {
+            "format": loader.MODEL_FORMAT,
+            "source_repo": loader.MODEL_REPO,
             "config_sha256": loader.CONFIG_SHA256,
             "source_revision": loader.MODEL_REVISION,
         }
@@ -59,8 +61,17 @@ class LoaderTests(unittest.TestCase):
                 loader._validate_checkpoint_header(FakeCheckpoint(dtype="F32"))
             with self.assertRaisesRegex(ValueError, "revision"):
                 loader._validate_checkpoint_header(FakeCheckpoint(metadata={
+                    "format": loader.MODEL_FORMAT,
+                    "source_repo": loader.MODEL_REPO,
                     "config_sha256": loader.CONFIG_SHA256,
                     "source_revision": "wrong",
+                }))
+            with self.assertRaisesRegex(ValueError, "Final model"):
+                loader._validate_checkpoint_header(FakeCheckpoint(metadata={
+                    "format": loader.MODEL_FORMAT,
+                    "source_repo": "sensenova/SenseNova-U1.5-8B-MoT-SFT",
+                    "config_sha256": loader.CONFIG_SHA256,
+                    "source_revision": loader.MODEL_REVISION,
                 }))
 
     def test_loader_rejects_non_safetensors_before_reading(self):

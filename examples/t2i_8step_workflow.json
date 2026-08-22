@@ -1,0 +1,158 @@
+{
+  "id": "6e74ae7a-1fe6-4b80-991f-1e0efe583008",
+  "revision": 0,
+  "last_node_id": 9,
+  "last_link_id": 11,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "SenseNovaU15Loader",
+      "pos": [0, 0],
+      "size": [330, 90],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {"name": "MODEL", "type": "MODEL", "links": [1]},
+        {"name": "CLIP", "type": "CLIP", "links": [2, 3]},
+        {"name": "VAE", "type": "VAE", "links": [4]}
+      ],
+      "properties": {"Node name for S&R": "SenseNovaU15Loader"},
+      "widgets_values": ["SenseNova-U1.5-8B-MoT-T8.safetensors"]
+    },
+    {
+      "id": 2,
+      "type": "LoraLoaderModelOnly",
+      "pos": [390, 0],
+      "size": [360, 110],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [{"name": "model", "type": "MODEL", "link": 1}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [5]}],
+      "properties": {"Node name for S&R": "LoraLoaderModelOnly"},
+      "widgets_values": ["SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors", 1]
+    },
+    {
+      "id": 3,
+      "type": "SenseNovaSamplingOptions",
+      "pos": [810, 0],
+      "size": [300, 90],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [{"name": "model", "type": "MODEL", "link": 5}],
+      "outputs": [{"name": "MODEL", "type": "MODEL", "links": [6]}],
+      "properties": {"Node name for S&R": "SenseNovaSamplingOptions"},
+      "widgets_values": [3]
+    },
+    {
+      "id": 4,
+      "type": "CLIPTextEncode",
+      "pos": [0, 190],
+      "size": [500, 240],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [{"name": "clip", "type": "CLIP", "link": 2}],
+      "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [7]}],
+      "properties": {"Node name for S&R": "CLIPTextEncode"},
+      "widgets_values": ["一张2048×2048方形中文美食信息图，米白色手账纸背景，标题必须清晰写着‘黄金炸鸡制作指南’，副标题写着‘外酥里嫩’，中间是一盘金黄酥脆炸鸡。左栏标题‘准备材料’，逐行清晰写：鸡腿 500克、鸡蛋 2个、面粉 100克、盐 5克、黑胡椒 3克。右栏标题‘制作步骤’，清晰编号写：1 腌制入味、2 裹粉均匀、3 油炸至金黄。底部橙色提示框清晰写着‘小贴士：油温保持170°C’。排版整齐，所有文字清晰可读，颜色自然克制，避免过度饱和。"]
+    },
+    {
+      "id": 5,
+      "type": "CLIPTextEncode",
+      "pos": [0, 480],
+      "size": [430, 100],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [{"name": "clip", "type": "CLIP", "link": 3}],
+      "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING", "links": [8]}],
+      "properties": {"Node name for S&R": "CLIPTextEncode"},
+      "widgets_values": [""]
+    },
+    {
+      "id": 6,
+      "type": "EmptySenseNovaLatentImage",
+      "pos": [540, 350],
+      "size": [270, 130],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [9]}],
+      "properties": {"Node name for S&R": "EmptySenseNovaLatentImage"},
+      "widgets_values": [2048, 2048, 1]
+    },
+    {
+      "id": 7,
+      "type": "KSampler",
+      "pos": [1160, 0],
+      "size": [310, 270],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {"name": "model", "type": "MODEL", "link": 6},
+        {"name": "positive", "type": "CONDITIONING", "link": 7},
+        {"name": "negative", "type": "CONDITIONING", "link": 8},
+        {"name": "latent_image", "type": "LATENT", "link": 9}
+      ],
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [10]}],
+      "properties": {"Node name for S&R": "KSampler"},
+      "widgets_values": [42, "fixed", 8, 1, "euler", "normal", 1]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [1160, 320],
+      "size": [220, 70],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {"name": "samples", "type": "LATENT", "link": 10},
+        {"name": "vae", "type": "VAE", "link": 4}
+      ],
+      "outputs": [{"name": "IMAGE", "type": "IMAGE", "links": [11]}],
+      "properties": {"Node name for S&R": "VAEDecode"},
+      "widgets_values": []
+    },
+    {
+      "id": 9,
+      "type": "SaveImage",
+      "pos": [1160, 450],
+      "size": [310, 270],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [{"name": "images", "type": "IMAGE", "link": 11}],
+      "outputs": [{"name": "images", "type": "IMAGE", "links": null}],
+      "properties": {"Node name for S&R": "SaveImage"},
+      "widgets_values": ["SenseNova/t2i-8step"]
+    }
+  ],
+  "links": [
+    [1, 1, 0, 2, 0, "MODEL"],
+    [2, 1, 1, 4, 0, "CLIP"],
+    [3, 1, 1, 5, 0, "CLIP"],
+    [4, 1, 2, 8, 1, "VAE"],
+    [5, 2, 0, 3, 0, "MODEL"],
+    [6, 3, 0, 7, 0, "MODEL"],
+    [7, 4, 0, 7, 1, "CONDITIONING"],
+    [8, 5, 0, 7, 2, "CONDITIONING"],
+    [9, 6, 0, 7, 3, "LATENT"],
+    [10, 7, 0, 8, 0, "LATENT"],
+    [11, 8, 0, 9, 0, "IMAGE"]
+  ],
+  "groups": [
+    {"id": 1, "title": "1. Load U1.5 Final and native 8-step LoRA", "bounding": [-30, -70, 1170, 210], "color": "#3f789e", "flags": {}},
+    {"id": 2, "title": "2. Prompt and 2048 size", "bounding": [-30, 150, 880, 480], "color": "#3f789e", "flags": {}},
+    {"id": 3, "title": "3. Official 8-step sampling", "bounding": [1130, -70, 380, 840], "color": "#3f789e", "flags": {}}
+  ],
+  "config": {},
+  "extra": {"ds": {"scale": 0.7, "offset": [40, 100]}, "frontendVersion": "1.49.6"},
+  "version": 0.4
+}

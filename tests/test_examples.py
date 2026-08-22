@@ -15,6 +15,7 @@ class ExampleWorkflowTests(unittest.TestCase):
         self.assertEqual([path.name for path in examples], [
             "edit_workflow.json",
             "multi_reference_edit_workflow.json",
+            "t2i_8step_workflow.json",
             "t2i_workflow.json",
         ])
         for path in examples:
@@ -25,7 +26,12 @@ class ExampleWorkflowTests(unittest.TestCase):
                 self.assertIn("version", workflow)
 
     def test_frontend_workflows_have_resolved_links(self):
-        for name in ("t2i_workflow.json", "edit_workflow.json", "multi_reference_edit_workflow.json"):
+        for name in (
+            "t2i_workflow.json",
+            "t2i_8step_workflow.json",
+            "edit_workflow.json",
+            "multi_reference_edit_workflow.json",
+        ):
             workflow = self.load_example(name)
             nodes = {node["id"]: node for node in workflow["nodes"]}
             links = {link[0]: link for link in workflow["links"]}
@@ -41,6 +47,21 @@ class ExampleWorkflowTests(unittest.TestCase):
         workflow = self.load_example("t2i_workflow.json")
         sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
         self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
+
+    def test_frontend_8step_uses_native_lora_and_official_defaults(self):
+        workflow = self.load_example("t2i_8step_workflow.json")
+        lora = next(node for node in workflow["nodes"] if node["type"] == "LoraLoaderModelOnly")
+        sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
+        options = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaSamplingOptions")
+        latent = next(node for node in workflow["nodes"] if node["type"] == "EmptySenseNovaLatentImage")
+        self.assertEqual(lora["widgets_values"], ["SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors", 1])
+        self.assertEqual(sampler["widgets_values"][2:], [8, 1, "euler", "normal", 1])
+        self.assertEqual(options["widgets_values"], [3])
+        self.assertEqual(latent["widgets_values"], [2048, 2048, 1])
+        links = {link[0]: link for link in workflow["links"]}
+        self.assertEqual(links[lora["inputs"][0]["link"]][1:3], [1, 0])
+        self.assertEqual(links[options["inputs"][0]["link"]][1:3], [2, 0])
+        self.assertEqual(links[sampler["inputs"][0]["link"]][1:3], [3, 0])
 
     def test_frontend_edit_and_multi_reference_contracts(self):
         edit = self.load_example("edit_workflow.json")

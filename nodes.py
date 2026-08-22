@@ -22,9 +22,9 @@ class SenseNovaU15Loader(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="SenseNovaU15Loader",
-            display_name="SenseNova U1.5 Loader",
+            display_name="SenseNova U1.5 Final Loader",
             category="loaders/SenseNova",
-            description="Load the verified single-file SenseNova-U1.5 checkpoint. No network requests are made.",
+            description="Load the verified single-file SenseNova-U1.5 Final checkpoint. SFT and Preview are rejected.",
             inputs=[
                 io.Combo.Input(
                     id="model_name",

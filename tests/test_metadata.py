@@ -41,6 +41,7 @@ class MetadataTests(unittest.TestCase):
             "t2i-workflow.jpg",
             "edit-workflow.jpg",
             "multi-reference-edit-workflow.jpg",
+            "result-t2i-8step-2048.png",
             "result-t2i-2048.png",
             "result-multi-reference-2048.png",
         ):

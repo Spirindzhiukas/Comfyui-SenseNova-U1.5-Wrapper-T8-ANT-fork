@@ -16,6 +16,8 @@ from .model_config import SenseNovaModelConfig
 
 CONFIG_SHA256 = "6497591f64cb0dd6917fbb10c0cd13024e5817179a9aa3700998eb137a553d6b"
 MODEL_REVISION = "1f6ec60423d29939dde4202fd82ae340b144e280"
+MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT"
+MODEL_FORMAT = "sensenova-u1.5-mot"
 TOKENIZER_ASSET_SHA256 = {
     "config.json": CONFIG_SHA256,
     "tokenizer_config.json": "7433b95cec590c7d687259e81bca1bc4630ff39773dbf7f30f7df27a99748077",
@@ -27,6 +29,10 @@ TOKENIZER_ASSET_SHA256 = {
 
 
 def _validate_metadata(metadata):
+    if metadata.get("format") != MODEL_FORMAT:
+        raise ValueError("SenseNova-U1.5 checkpoint format does not match this node version")
+    if metadata.get("source_repo") != MODEL_REPO:
+        raise ValueError("SenseNova-U1.5 checkpoint is not the supported Final model")
     if metadata.get("config_sha256") != CONFIG_SHA256:
         raise ValueError("SenseNova-U1.5 config digest does not match this node version")
     if metadata.get("source_revision") != MODEL_REVISION:
@@ -120,6 +126,10 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     if state_dict:
         raise ValueError(f"SenseNova-U1.5 unused checkpoint keys after load: {sorted(state_dict)[:5]}")
     patcher.cached_patcher_init = (load_sensenova_model, (model_path, dtype))
+    patcher.set_attachments(
+        "sensenova_checkpoint",
+        {"variant": "final", "source_repo": MODEL_REPO, "source_revision": MODEL_REVISION},
+    )
     return patcher
 
 

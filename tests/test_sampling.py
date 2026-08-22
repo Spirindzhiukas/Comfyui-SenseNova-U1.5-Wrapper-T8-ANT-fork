@@ -24,7 +24,7 @@ from sensenova_u15.sampling import (
 
 class SamplingMathTests(unittest.TestCase):
     def test_upstream_schedule_matches_direct_formula(self):
-        for steps in (1, 2, 50):
+        for steps in (1, 2, 8, 50):
             for shift in (1.0, 3.0):
                 base = torch.linspace(0.0, 1.0, steps + 1)
                 expected = 1.0 - shift * (1.0 - base) / (1.0 + (shift - 1.0) * (1.0 - base))
@@ -41,7 +41,7 @@ class SamplingMathTests(unittest.TestCase):
         sampling = SenseNovaModelSampling(None)
         for shift in (1.0, 3.0):
             sampling.set_parameters(shift=shift)
-            for steps in (1, 2, 50):
+            for steps in (1, 2, 8, 50):
                 actual = comfy.samplers.normal_scheduler(sampling, steps)
                 expected = upstream_sigmas(steps, shift)
                 torch.testing.assert_close(actual, expected, rtol=2e-6, atol=2e-7)

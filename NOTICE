@@ -2,7 +2,8 @@ This project implements local ComfyUI inference support for SenseNova-U1.5.
 
 Model and reference implementation:
 - SenseNova-U1.5-8B-MoT, revision 1f6ec60423d29939dde4202fd82ae340b144e280
-- OpenSenseNova/SenseNova-U1, commit f71dfb098226d01edc0e4c67b3917a2af71a30ef
+- SenseNova-U1.5-8B-MoT-LoRAs, revision e909f4636d119d65fe4cba8770c19daff2ac102e
+- OpenSenseNova/SenseNova-U1 feat/u1.5, audited at commit 76c32c2fb0bb325f0116c6120b518a7df6a93430
 - Copyright OpenSenseNova contributors; Apache License 2.0
 
 ComfyUI is a separate project and is used through its public model, node,

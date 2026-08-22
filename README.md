@@ -8,6 +8,7 @@
 - 单图编辑
 - 1～10 张参考图编辑
 - 普通 `KSampler`
+- 官方 U1.5 8-step LoRA（ComfyUI 原生 `LoraLoaderModelOnly`）
 - 自定义 `img_cfg` 的三路引导
 - 执行期间的文本/参考图 prefix KV cache
 
@@ -34,19 +35,43 @@ git clone https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8.git
 - [Hugging Face：t8star/SenseNova-U1.5-Comfy](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/)
 - [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
 
-下载单文件模型 `SenseNova-U1.5-8B-MoT-T8.safetensors`，放到：
+下载这两个文件：
+
+| 文件 | 放置位置 | 用途 |
+|---|---|---|
+| `SenseNova-U1.5-8B-MoT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 最终版单文件底模，约 50 GB |
+| `SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors` | `ComfyUI/models/loras/` | 官方 8-step LoRA 的 ComfyUI 原生键名版本，约 815 MB |
+
+底模路径：
 
 ```text
 ComfyUI/models/diffusion_models/
 ```
 
-模型约 50 GB。Manager 只安装节点，不会自动下载模型。
+LoRA 路径：
+
+```text
+ComfyUI/models/loras/
+```
+
+Manager 只安装节点，不会自动下载模型。
+
+注意：8-step LoRA 必须搭配最终版 `SenseNova-U1.5-8B-MoT`，不能搭配 Preview，也不要搭配 SFT 权重。仓库提供的 `-T8.safetensors` 就是已经校验并合并为单文件的官方最终版。
+
+| 文件/组合 | 本节点支持 | 说明 |
+|---|---:|---|
+| U1.5 Final，50 步生成/编辑 | ✅ | 当前主模型 |
+| U1.5 Final + `-ComfyUI` 8-step LoRA | ✅ | 仅用于 8 步文生图 |
+| U1.5 SFT | ❌ | 它确实是 U1.5，但不是当前节点支持的发布底模 |
+| U1.5 Preview | ❌ | 旧预览权重 |
+| 官方未转换的 raw LoRA | ❌ | 键名无法被 ComfyUI 原生 LoRA 节点识别 |
 
 ## 直接使用工作流
 
-下面 3 个都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
+下面 4 个都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。没有 API 工作流。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
 
 - [文生图工作流](examples/t2i_workflow.json)
+- [8-step LoRA 文生图工作流](examples/t2i_8step_workflow.json)
 - [普通编辑工作流（img_cfg=1）](examples/edit_workflow.json)
 - [多参考三路编辑工作流](examples/multi_reference_edit_workflow.json)
 
@@ -56,6 +81,19 @@ ComfyUI/models/diffusion_models/
 steps: 50
 CFG: 4
 img_cfg: 1
+shift: 3
+sampler: euler
+scheduler: normal
+denoise: 1
+```
+
+8-step LoRA 请用官方参数：
+
+```text
+LoRA strength: 1
+steps: 8
+CFG: 1
+cfg_norm: none（CFG=1 时不做额外 CFG norm）
 shift: 3
 sampler: euler
 scheduler: normal
@@ -73,6 +111,16 @@ Loader → Sampling Options → KSampler → VAE Decode → Save Image
 ```
 
 `MODEL` 必须先经过 `SenseNova Sampling Options`，`shift` 保持 `3`。
+
+### 8-step LoRA 文生图
+
+8-step 工作流使用 ComfyUI 自带的 `LoraLoaderModelOnly`，不需要额外的 LoRA 节点：
+
+```text
+SenseNova Loader → LoraLoaderModelOnly → Sampling Options → KSampler
+```
+
+LoRA 强度保持 `1`。这个 LoRA 是官方发布的快速文生图适配器；图像编辑仍建议使用不加 LoRA 的 50 步编辑工作流。
 
 ### 普通图像编辑
 
@@ -104,7 +152,15 @@ RandomNoise + KSamplerSelect + Latent├──→ SamplerCustomAdvanced
 
 ## 实际结果
 
-下面两张图都由本节点生成，参数不是后期调色结果。
+下面图片都由本节点生成，参数不是后期调色结果。
+
+### 2048×2048、8 步文字密集文生图
+
+[查看原始 2048×2048 PNG](docs/images/result-t2i-8step-2048.png)
+
+![SenseNova U1.5 8-step 中文炸鸡信息图](docs/images/result-t2i-8step-2048.png)
+
+参数：2048×2048、8 步、CFG 1、shift 3、LoRA strength 1、Euler/normal、seed 42。标题、副标题、5 项材料、3 个步骤和温度提示均直接由模型生成，没有后期修字。RTX 5090 Laptop 24 GB 上任务约 78 秒完成。
 
 ### 2048×2048 文生图
 
@@ -152,7 +208,7 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 - batch size 只支持 1
 - 只验证了 NVIDIA CUDA + BF16
 - 不支持运行时自动下载模型
-- 量化、8-step LoRA、CFG norm、bbox/marker 和 think mode 暂未开放
+- 量化、CFG norm、bbox/marker 和 think mode 暂未开放
 - FP16、ROCm、MPS、DirectML、XPU、NPU 暂未验证
 
 ## 模型校验
@@ -165,6 +221,26 @@ revision：1f6ec60423d29939dde4202fd82ae340b144e280
 ```
 
 节点会检查模型 metadata、全部 tensor 名称、shape 和存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
+
+8-step LoRA 校验：
+
+```text
+官方来源：sensenova/SenseNova-U1.5-8B-MoT-LoRAs
+revision：e909f4636d119d65fe4cba8770c19daff2ac102e
+官方文件 SHA256：3ef32180cdf1e30a870a83f4f136e897ea50b7ee467f863d75633464ebb25708
+ComfyUI 文件 SHA256：dd5320f06986688dd41b0a4a2cb6ebd0036308f8a8a2d0c349ca22875a805aa1
+module：294
+tensor：882
+```
+
+转换只给键名添加 `diffusion_model.` 前缀，LoRA 张量数据逐字节不变。普通用户直接下载转换好的文件即可；从 GitHub 克隆源码的高级用户也可以运行 [`tools/convert_lora_to_comfy.py`](tools/convert_lora_to_comfy.py)。
+
+需要手动检查下载文件时：
+
+```powershell
+Get-FileHash .\SenseNova-U1.5-8B-MoT-T8.safetensors -Algorithm SHA256
+Get-FileHash .\SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors -Algorithm SHA256
+```
 
 ## 其他链接
 
@@ -179,5 +255,9 @@ revision：1f6ec60423d29939dde4202fd82ae340b144e280
 ## 来源与许可
 
 SenseNova-U1.5 模型和参考实现来自 [OpenSenseNova/SenseNova-U1](https://github.com/OpenSenseNova/SenseNova-U1)，原项目使用 Apache License 2.0。
+
+- [官方 U1.5 Final](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT)
+- [官方 U1.5 SFT](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-SFT)
+- [官方 U1.5 LoRAs](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-LoRAs)
 
 本仓库只提供 ComfyUI 本地推理适配，不包含模型权重。详细归因见 [NOTICE](NOTICE)。
