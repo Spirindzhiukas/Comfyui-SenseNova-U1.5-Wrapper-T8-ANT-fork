@@ -17,7 +17,19 @@ from .model_config import SenseNovaModelConfig
 CONFIG_SHA256 = "6497591f64cb0dd6917fbb10c0cd13024e5817179a9aa3700998eb137a553d6b"
 MODEL_REVISION = "1f6ec60423d29939dde4202fd82ae340b144e280"
 MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT"
+SFT_MODEL_REVISION = "661834c5b5aee0f89958353511d6ac0ccaacb646"
+SFT_MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT-SFT"
 MODEL_FORMAT = "sensenova-u1.5-mot"
+MODEL_VARIANTS = {
+    "final": {
+        "source_repo": MODEL_REPO,
+        "source_revision": MODEL_REVISION,
+    },
+    "sft": {
+        "source_repo": SFT_MODEL_REPO,
+        "source_revision": SFT_MODEL_REVISION,
+    },
+}
 TOKENIZER_ASSET_SHA256 = {
     "config.json": CONFIG_SHA256,
     "tokenizer_config.json": "7433b95cec590c7d687259e81bca1bc4630ff39773dbf7f30f7df27a99748077",
@@ -31,12 +43,18 @@ TOKENIZER_ASSET_SHA256 = {
 def _validate_metadata(metadata):
     if metadata.get("format") != MODEL_FORMAT:
         raise ValueError("SenseNova-U1.5 checkpoint format does not match this node version")
-    if metadata.get("source_repo") != MODEL_REPO:
-        raise ValueError("SenseNova-U1.5 checkpoint is not the supported Final model")
     if metadata.get("config_sha256") != CONFIG_SHA256:
         raise ValueError("SenseNova-U1.5 config digest does not match this node version")
-    if metadata.get("source_revision") != MODEL_REVISION:
-        raise ValueError("SenseNova-U1.5 model revision does not match this node version")
+    source_repo = metadata.get("source_repo")
+    source_revision = metadata.get("source_revision")
+    for variant, contract in MODEL_VARIANTS.items():
+        if source_repo == contract["source_repo"]:
+            if source_revision != contract["source_revision"]:
+                raise ValueError(
+                    f"SenseNova-U1.5 {variant.upper()} model revision does not match this node version"
+                )
+            return variant
+    raise ValueError("SenseNova-U1.5 checkpoint is not a supported Final or SFT model")
 
 
 def _checkpoint_contract():
@@ -50,7 +68,11 @@ def _checkpoint_contract():
     return contract
 
 
-def _storage_dtype(name):
+def _storage_dtype(name, variant="final"):
+    if variant == "sft":
+        return "BF16"
+    if variant != "final":
+        raise ValueError(f"unsupported SenseNova-U1.5 checkpoint variant: {variant}")
     if name.startswith((
         "fm_modules.vision_model_mot_gen.",
         "fm_modules.timestep_embedder.",
@@ -66,7 +88,7 @@ def _storage_dtype(name):
 
 
 def _validate_checkpoint_header(checkpoint):
-    _validate_metadata(checkpoint.metadata() or {})
+    variant = _validate_metadata(checkpoint.metadata() or {})
     contract = _checkpoint_contract()
     actual_keys = set(checkpoint.keys())
     expected_keys = set(contract)
@@ -79,12 +101,12 @@ def _validate_checkpoint_header(checkpoint):
         actual_shape = tuple(tensor.get_shape())
         if actual_shape != shape:
             raise ValueError(f"SenseNova-U1.5 checkpoint shape mismatch for {name}: {actual_shape} != {shape}")
-        expected_dtype = _storage_dtype(name)
+        expected_dtype = _storage_dtype(name, variant)
         if tensor.get_dtype() != expected_dtype:
             raise ValueError(
                 f"SenseNova-U1.5 checkpoint dtype mismatch for {name}: {tensor.get_dtype()} != {expected_dtype}"
             )
-    return expected_keys
+    return expected_keys, variant
 
 
 def _validate_tokenizer_assets():
@@ -100,9 +122,11 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     if Path(model_path).suffix.lower() not in (".safetensors", ".sft"):
         raise ValueError("SenseNova-U1.5 loader accepts safetensors files only")
     with safe_open(model_path, framework="pt", device="cpu") as checkpoint:
-        expected_keys = _validate_checkpoint_header(checkpoint)
+        expected_keys, variant = _validate_checkpoint_header(checkpoint)
     state_dict, metadata = comfy.utils.load_torch_file(model_path, return_metadata=True)
-    _validate_metadata(metadata)
+    loaded_variant = _validate_metadata(metadata)
+    if loaded_variant != variant:
+        raise ValueError("SenseNova-U1.5 checkpoint metadata changed while loading")
     if set(state_dict) != expected_keys:
         raise ValueError("SenseNova-U1.5 loaded state dict does not match the validated header")
 
@@ -128,7 +152,11 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     patcher.cached_patcher_init = (load_sensenova_model, (model_path, dtype))
     patcher.set_attachments(
         "sensenova_checkpoint",
-        {"variant": "final", "source_repo": MODEL_REPO, "source_revision": MODEL_REVISION},
+        {
+            "variant": variant,
+            "source_repo": MODEL_VARIANTS[variant]["source_repo"],
+            "source_revision": MODEL_VARIANTS[variant]["source_revision"],
+        },
     )
     return patcher
 

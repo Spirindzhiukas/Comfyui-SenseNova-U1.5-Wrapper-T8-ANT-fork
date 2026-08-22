@@ -8,7 +8,8 @@
 - 单图编辑
 - 1～10 张参考图编辑
 - 普通 `KSampler`
-- 官方 U1.5 8-step LoRA（ComfyUI 原生 `LoraLoaderModelOnly`）
+- U1.5 Final 和 U1.5 SFT 两套官方权重
+- 官方 U1.5 8-step LoRA（底层使用 ComfyUI 原生 LoRA/ModelPatcher 管道）
 - 自定义 `img_cfg` 的三路引导
 - 执行期间的文本/参考图 prefix KV cache
 
@@ -35,11 +36,12 @@ git clone https://github.com/T8mars/SenseNova-U1.5-Wrapper-T8.git
 - [Hugging Face：t8star/SenseNova-U1.5-Comfy](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/)
 - [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
 
-下载这两个文件：
+按需要下载：
 
 | 文件 | 放置位置 | 用途 |
 |---|---|---|
 | `SenseNova-U1.5-8B-MoT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 最终版单文件底模，约 50 GB |
+| `SenseNova-U1.5-8B-MoT-SFT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 SFT 单文件底模，约 35 GB |
 | `SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors` | `ComfyUI/models/loras/` | 官方 8-step LoRA 的 ComfyUI 原生键名版本，约 815 MB |
 
 底模路径：
@@ -56,24 +58,28 @@ ComfyUI/models/loras/
 
 Manager 只安装节点，不会自动下载模型。
 
-注意：8-step LoRA 必须搭配最终版 `SenseNova-U1.5-8B-MoT`，不能搭配 Preview，也不要搭配 SFT 权重。仓库提供的 `-T8.safetensors` 就是已经校验并合并为单文件的官方最终版。
+Final 和 SFT 都是 SenseNova U1.5，本节点都支持 50 步文生图和图像编辑。两者是不同训练阶段的权重，不要混为同一个文件。
+
+注意：官方 8-step LoRA 必须搭配 Final，不能搭配 SFT 或 Preview。专用的 `SenseNova U1.5 8-Step LoRA` 节点会检查底模，接错时直接给出说明。
 
 | 文件/组合 | 本节点支持 | 说明 |
 |---|---:|---|
 | U1.5 Final，50 步生成/编辑 | ✅ | 当前主模型 |
 | U1.5 Final + `-ComfyUI` 8-step LoRA | ✅ | 仅用于 8 步文生图 |
-| U1.5 SFT | ❌ | 它确实是 U1.5，但不是当前节点支持的发布底模 |
+| U1.5 SFT，50 步生成/编辑 | ✅ | 独立单文件底模，不叠加 8-step LoRA |
 | U1.5 Preview | ❌ | 旧预览权重 |
-| 官方未转换的 raw LoRA | ❌ | 键名无法被 ComfyUI 原生 LoRA 节点识别 |
+| 官方未转换的 raw LoRA | ❌ | 先使用仓库转换工具，或直接下载 `-ComfyUI` 文件 |
 
 ## 直接使用工作流
 
-下面 4 个都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。没有 API 工作流。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
+下面都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。没有 API 工作流。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
 
 - [文生图工作流](examples/t2i_workflow.json)
 - [8-step LoRA 文生图工作流](examples/t2i_8step_workflow.json)
 - [普通编辑工作流（img_cfg=1）](examples/edit_workflow.json)
 - [多参考三路编辑工作流](examples/multi_reference_edit_workflow.json)
+- [SFT 文生图工作流](examples/sft_t2i_workflow.json)
+- [SFT 图像编辑工作流](examples/sft_edit_workflow.json)
 
 推荐先保持这些参数：
 
@@ -114,10 +120,10 @@ Loader → Sampling Options → KSampler → VAE Decode → Save Image
 
 ### 8-step LoRA 文生图
 
-8-step 工作流使用 ComfyUI 自带的 `LoraLoaderModelOnly`，不需要额外的 LoRA 节点：
+8-step 工作流使用本项目的保护节点，内部仍走 ComfyUI 原生 LoRA 映射和 `ModelPatcher`：
 
 ```text
-SenseNova Loader → LoraLoaderModelOnly → Sampling Options → KSampler
+SenseNova Loader (Final) → SenseNova U1.5 8-Step LoRA → Sampling Options → KSampler
 ```
 
 LoRA 强度保持 `1`。这个 LoRA 是官方发布的快速文生图适配器；图像编辑仍建议使用不加 LoRA 的 50 步编辑工作流。
@@ -154,13 +160,21 @@ RandomNoise + KSamplerSelect + Latent├──→ SamplerCustomAdvanced
 
 下面图片都由本节点生成，参数不是后期调色结果。
 
+### U1.5 SFT：2048×2048、50 步文字密集文生图
+
+[查看原始 2048×2048 PNG](docs/images/result-sft-t2i-2048.png)
+
+![SenseNova U1.5 SFT 中文炸鸡信息图](docs/images/result-sft-t2i-2048.png)
+
+参数：SFT 单文件底模、2048×2048、50 步、CFG 4、shift 3、Euler/normal、seed 42。标题、材料数量、3 个步骤和 170°C 提示直接由模型生成，没有后期修字。RTX 5090 Laptop 24 GB 上任务约 297 秒完成。
+
 ### 2048×2048、8 步文字密集文生图
 
 [查看原始 2048×2048 PNG](docs/images/result-t2i-8step-2048.png)
 
 ![SenseNova U1.5 8-step 中文炸鸡信息图](docs/images/result-t2i-8step-2048.png)
 
-参数：2048×2048、8 步、CFG 1、shift 3、LoRA strength 1、Euler/normal、seed 42。标题、副标题、5 项材料、3 个步骤和温度提示均直接由模型生成，没有后期修字。RTX 5090 Laptop 24 GB 上任务约 78 秒完成。
+参数：2048×2048、8 步、CFG 1、shift 3、LoRA strength 1、Euler/normal、seed 42。标题、副标题、5 项材料、3 个步骤和温度提示均直接由模型生成，没有后期修字。RTX 5090 Laptop 24 GB 上任务约 86 秒完成。
 
 ### 2048×2048 文生图
 
@@ -209,9 +223,12 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 - 只验证了 NVIDIA CUDA + BF16
 - 不支持运行时自动下载模型
 - 量化、CFG norm、bbox/marker 和 think mode 暂未开放
+- 复杂主体替换、多区域或多约束编辑可能出现内容漂移
 - FP16、ROCm、MPS、DirectML、XPU、NPU 暂未验证
 
 ## 模型校验
+
+Final：
 
 ```text
 大小：50,222,155,152 bytes
@@ -220,7 +237,16 @@ tensor：1116
 revision：1f6ec60423d29939dde4202fd82ae340b144e280
 ```
 
-节点会检查模型 metadata、全部 tensor 名称、shape 和存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
+SFT：
+
+```text
+大小：35,065,860,320 bytes
+SHA256：9c105bb4baaf244bbd99f814c36f190228c5878f8889295e3dba285441442f2f
+tensor：1116（全部 BF16）
+revision：661834c5b5aee0f89958353511d6ac0ccaacb646
+```
+
+节点会区分 Final/SFT，并检查 metadata、全部 tensor 名称、shape 和各版本的存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
 
 8-step LoRA 校验：
 
@@ -239,6 +265,7 @@ tensor：882
 
 ```powershell
 Get-FileHash .\SenseNova-U1.5-8B-MoT-T8.safetensors -Algorithm SHA256
+Get-FileHash .\SenseNova-U1.5-8B-MoT-SFT-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors -Algorithm SHA256
 ```
 

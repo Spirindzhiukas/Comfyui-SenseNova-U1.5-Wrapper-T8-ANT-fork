@@ -22,7 +22,7 @@ package = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 
-from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, _prefix_cache_sample_wrapper
+from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaU15EightStepLoRA, _prefix_cache_sample_wrapper
 
 
 class EditGuiderNodeTests(unittest.TestCase):
@@ -127,6 +127,7 @@ class EditGuiderNodeTests(unittest.TestCase):
             actual,
             {
                 "SenseNovaU15Loader": 3,
+                "SenseNovaU15EightStepLoRA": 1,
                 "EmptySenseNovaLatentImage": 1,
                 "SenseNovaSamplingOptions": 1,
                 "SenseNovaReferenceImage": 2,

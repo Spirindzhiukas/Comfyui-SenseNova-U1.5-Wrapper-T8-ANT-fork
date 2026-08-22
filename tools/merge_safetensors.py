@@ -149,7 +149,11 @@ def inspect_source(source_dir: Path):
     residuals = [
         path
         for path in source_dir.rglob("*")
-        if path.is_file() and path.name.endswith((".incomplete", ".partial", ".lock"))
+        if (
+            path.is_file()
+            and path.name.endswith((".incomplete", ".partial", ".lock"))
+            and path.relative_to(source_dir).parts[:2] != (".cache", "huggingface")
+        )
     ]
     if residuals:
         raise ValueError(f"source contains incomplete or locked files: {residuals[0]}")

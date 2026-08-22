@@ -90,6 +90,16 @@ class MergeSafetensorsTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "incomplete or locked"):
                 inspect_source(source)
 
+    def test_ignores_hugging_face_local_dir_metadata_cache(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.make_source(root)
+            hf_cache = source / ".cache" / "huggingface" / "download"
+            hf_cache.mkdir(parents=True)
+            (hf_cache / "metadata.lock").write_bytes(b"")
+            _, shards = inspect_source(source)
+            self.assertEqual(len(shards), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

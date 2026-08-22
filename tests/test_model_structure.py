@@ -17,8 +17,12 @@ from sensenova_u15.model import SenseNovaU15
 
 class ModelStructureTests(unittest.TestCase):
     def test_state_dict_matches_single_file_manifest(self):
-        manifest_path = COMFY_ROOT / "models" / "diffusion_models" / "SenseNova-U1.5-8B-MoT.safetensors.manifest.json"
-        if not manifest_path.exists():
+        manifest_paths = [
+            COMFY_ROOT / "models" / "diffusion_models" / "SenseNova-U1.5-8B-MoT.safetensors.manifest.json",
+            COMFY_ROOT / "models" / "diffusion_models" / "SenseNova-U1.5-8B-MoT-SFT-T8.safetensors.manifest.json",
+        ]
+        manifest_paths = [path for path in manifest_paths if path.exists()]
+        if not manifest_paths:
             self.skipTest("converted model manifest is not present")
 
         model = SenseNovaU15(
@@ -28,12 +32,13 @@ class ModelStructureTests(unittest.TestCase):
         )
         self.assertIs(model.dtype, torch.bfloat16)
         actual = model.state_dict()
-        expected = json.loads(manifest_path.read_text(encoding="utf-8"))["tensors"]
-        expected.pop("language_model.lm_head.weight")
-
-        self.assertEqual(set(actual), set(expected))
-        for name, tensor in actual.items():
-            self.assertEqual(list(tensor.shape), expected[name]["shape"], name)
+        for manifest_path in manifest_paths:
+            expected = json.loads(manifest_path.read_text(encoding="utf-8"))["tensors"]
+            expected.pop("language_model.lm_head.weight")
+            with self.subTest(manifest=manifest_path.name):
+                self.assertEqual(set(actual), set(expected))
+                for name, tensor in actual.items():
+                    self.assertEqual(list(tensor.shape), expected[name]["shape"], name)
 
 
 if __name__ == "__main__":

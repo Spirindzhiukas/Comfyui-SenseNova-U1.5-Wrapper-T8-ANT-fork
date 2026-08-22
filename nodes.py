@@ -13,6 +13,7 @@ import node_helpers
 from comfy_api.latest import ComfyExtension, io
 
 from .sensenova_u15.loader import load_pixel_vae, load_sensenova_clip, load_sensenova_model
+from .sensenova_u15.lora import apply_eight_step_lora
 from .sensenova_u15.guidance import edit_guidance
 from .sensenova_u15.sampling import SenseNovaModelSampling
 
@@ -22,9 +23,9 @@ class SenseNovaU15Loader(io.ComfyNode):
     def define_schema(cls):
         return io.Schema(
             node_id="SenseNovaU15Loader",
-            display_name="SenseNova U1.5 Final Loader",
+            display_name="SenseNova U1.5 Loader (Final / SFT)",
             category="loaders/SenseNova",
-            description="Load the verified single-file SenseNova-U1.5 Final checkpoint. SFT and Preview are rejected.",
+            description="Load a verified single-file SenseNova-U1.5 Final or SFT checkpoint. Preview is rejected.",
             inputs=[
                 io.Combo.Input(
                     id="model_name",
@@ -66,6 +67,27 @@ class EmptySenseNovaLatentImage(io.ComfyNode):
             device=comfy.model_management.intermediate_device(),
         )
         return io.NodeOutput({"samples": samples})
+
+
+class SenseNovaU15EightStepLoRA(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaU15EightStepLoRA",
+            display_name="SenseNova U1.5 8-Step LoRA (Final only)",
+            category="loaders/SenseNova",
+            description="Apply the verified official 8-step LoRA to a SenseNova U1.5 Final model.",
+            inputs=[
+                io.Model.Input(id="model"),
+                io.Combo.Input(id="lora_name", options=folder_paths.get_filename_list("loras")),
+                io.Float.Input(id="strength_model", default=1.0, min=0.0, max=2.0, step=0.01),
+            ],
+            outputs=[io.Model.Output()],
+        )
+
+    @classmethod
+    def execute(cls, *, model, lora_name, strength_model):
+        return io.NodeOutput(apply_eight_step_lora(model, lora_name, strength_model))
 
 
 class SenseNovaSamplingOptions(io.ComfyNode):
@@ -235,6 +257,7 @@ class SenseNovaExtension(ComfyExtension):
     async def get_node_list(self):
         return [
             SenseNovaU15Loader,
+            SenseNovaU15EightStepLoRA,
             EmptySenseNovaLatentImage,
             SenseNovaSamplingOptions,
             SenseNovaReferenceImage,

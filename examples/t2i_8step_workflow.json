@@ -23,7 +23,7 @@
     },
     {
       "id": 2,
-      "type": "LoraLoaderModelOnly",
+      "type": "SenseNovaU15EightStepLoRA",
       "pos": [390, 0],
       "size": [360, 110],
       "flags": {},
@@ -31,7 +31,7 @@
       "mode": 0,
       "inputs": [{"name": "model", "type": "MODEL", "link": 1}],
       "outputs": [{"name": "MODEL", "type": "MODEL", "links": [5]}],
-      "properties": {"Node name for S&R": "LoraLoaderModelOnly"},
+      "properties": {"Node name for S&R": "SenseNovaU15EightStepLoRA"},
       "widgets_values": ["SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors", 1]
     },
     {

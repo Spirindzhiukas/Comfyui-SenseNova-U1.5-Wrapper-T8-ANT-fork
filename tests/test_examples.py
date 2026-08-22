@@ -15,6 +15,8 @@ class ExampleWorkflowTests(unittest.TestCase):
         self.assertEqual([path.name for path in examples], [
             "edit_workflow.json",
             "multi_reference_edit_workflow.json",
+            "sft_edit_workflow.json",
+            "sft_t2i_workflow.json",
             "t2i_8step_workflow.json",
             "t2i_workflow.json",
         ])
@@ -31,6 +33,8 @@ class ExampleWorkflowTests(unittest.TestCase):
             "t2i_8step_workflow.json",
             "edit_workflow.json",
             "multi_reference_edit_workflow.json",
+            "sft_t2i_workflow.json",
+            "sft_edit_workflow.json",
         ):
             workflow = self.load_example(name)
             nodes = {node["id"]: node for node in workflow["nodes"]}
@@ -48,9 +52,20 @@ class ExampleWorkflowTests(unittest.TestCase):
         sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
         self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
 
-    def test_frontend_8step_uses_native_lora_and_official_defaults(self):
+    def test_sft_examples_select_sft_checkpoint_and_keep_50_steps(self):
+        for name in ("sft_t2i_workflow.json", "sft_edit_workflow.json"):
+            workflow = self.load_example(name)
+            loader = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaU15Loader")
+            with self.subTest(name=name):
+                self.assertEqual(loader["widgets_values"], ["SenseNova-U1.5-8B-MoT-SFT-T8.safetensors"])
+        sampler = next(
+            node for node in self.load_example("sft_t2i_workflow.json")["nodes"] if node["type"] == "KSampler"
+        )
+        self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
+
+    def test_frontend_8step_uses_guarded_native_lora_and_official_defaults(self):
         workflow = self.load_example("t2i_8step_workflow.json")
-        lora = next(node for node in workflow["nodes"] if node["type"] == "LoraLoaderModelOnly")
+        lora = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaU15EightStepLoRA")
         sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
         options = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaSamplingOptions")
         latent = next(node for node in workflow["nodes"] if node["type"] == "EmptySenseNovaLatentImage")
