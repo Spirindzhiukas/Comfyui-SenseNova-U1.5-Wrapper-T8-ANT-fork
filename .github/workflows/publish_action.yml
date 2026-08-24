@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       changelog_only:
-        description: Update Registry release notes without publishing the package again
+        description: Update Registry release notes and listing metadata without publishing again
         required: false
         default: false
         type: boolean
@@ -79,3 +79,37 @@ jobs:
             --header "Content-Type: application/json" \
             --data "$payload" \
             "https://api.comfy.org/publishers/t8star/nodes/sensenova-u15-t8/versions/$version_id"
+      - name: Update Registry listing metadata
+        env:
+          REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          publisher_payload="$(jq -n '{
+            name: "T8star-Aix",
+            description: "ComfyUI nodes and AI model resources by T8star-Aix.",
+            website: "https://huggingface.co/t8star",
+            source_code_repo: "https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8"
+          }')"
+          curl --fail-with-body --silent --show-error \
+            --request PUT \
+            --header "Authorization: Bearer $REGISTRY_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$publisher_payload" \
+            "https://api.comfy.org/publishers/t8star"
+
+          node_payload="$(jq -n '{
+            name: "SenseNova U1.5 (T8)",
+            category: "image-generation",
+            description: "Native ComfyUI nodes for SenseNova-U1.5 text-to-image generation and multi-reference image editing.",
+            author: "T8star-Aix",
+            repository: "https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8",
+            tags: ["comfyui", "sensenova", "image-generation", "image-editing", "multi-reference"]
+          }')"
+          curl --fail-with-body --silent --show-error \
+            --request PUT \
+            --header "Authorization: Bearer $REGISTRY_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$node_payload" \
+            "https://api.comfy.org/publishers/t8star/nodes/sensenova-u15-t8"
