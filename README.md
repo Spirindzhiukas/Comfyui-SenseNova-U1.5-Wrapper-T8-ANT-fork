@@ -1,5 +1,7 @@
 # SenseNova-U1.5 ComfyUI 节点
 
+[English](README_EN.md) | 简体中文
+
 [![CI](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml/badge.svg)](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml)
 
 [版本更新记录](CHANGELOG.md) · [GitHub Releases](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/releases)

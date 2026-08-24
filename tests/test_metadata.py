@@ -49,11 +49,12 @@ class MetadataTests(unittest.TestCase):
         self.assertFalse(any(pattern in {"*.json", "sensenova_u15/", "checkpoint_contract.json"} for pattern in patterns))
 
     def test_readme_local_links_and_visuals_exist(self):
-        readme = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
-        local_links = [value for value in re.findall(r"\]\(([^)]+)\)", readme) if "://" not in value]
-        for value in local_links:
-            with self.subTest(value=value):
-                self.assertTrue((PACKAGE_ROOT / value).is_file())
+        for readme_name in ("README.md", "README_EN.md"):
+            readme = (PACKAGE_ROOT / readme_name).read_text(encoding="utf-8")
+            local_links = [value for value in re.findall(r"\]\(([^)]+)\)", readme) if "://" not in value]
+            for value in local_links:
+                with self.subTest(readme=readme_name, value=value):
+                    self.assertTrue((PACKAGE_ROOT / value).is_file())
         for name in (
             "t2i-workflow.jpg",
             "edit-workflow.jpg",
