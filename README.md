@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml/badge.svg)](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml)
 
+[版本更新记录](CHANGELOG.md) · [GitHub Releases](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/releases)
+
 这是 SenseNova-U1.5 的 ComfyUI 原生节点。模型、采样器、调度器、显存卸载和工作流都走 ComfyUI 管道，支持：
 
 - 文生图

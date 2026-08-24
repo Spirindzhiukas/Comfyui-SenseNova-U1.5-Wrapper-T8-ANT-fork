@@ -9,14 +9,22 @@ permissions:
 
 jobs:
   tests:
-    name: Schema, metadata, examples and unit tests
+    name: Tests (${{ matrix.comfyui.label }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        comfyui:
+          - label: minimum ComfyUI 0.31
+            ref: cbbc9dab1f03d0d9a6caa8a8be7d77a7e37e1e44
+          - label: current stable ComfyUI 0.33.1
+            ref: v0.33.1
     steps:
       - name: Check out tested ComfyUI
         uses: actions/checkout@v7
         with:
           repository: comfyanonymous/ComfyUI
-          ref: cbbc9dab1f03d0d9a6caa8a8be7d77a7e37e1e44
+          ref: ${{ matrix.comfyui.ref }}
           path: ComfyUI
       - name: Check out node
         uses: actions/checkout@v7

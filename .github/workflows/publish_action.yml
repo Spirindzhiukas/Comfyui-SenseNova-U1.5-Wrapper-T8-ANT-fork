@@ -22,3 +22,49 @@ jobs:
         uses: Comfy-Org/publish-node-action@main
         with:
           personal_access_token: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+      - name: Add release notes to Registry
+        env:
+          REGISTRY_ACCESS_TOKEN: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          changelog="$(python - "$version" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          version = re.escape(sys.argv[1])
+          text = Path("CHANGELOG.md").read_text(encoding="utf-8")
+          match = re.search(rf"^## \[{version}\].*?\n(.*?)(?=^## \[|\Z)", text, re.MULTILINE | re.DOTALL)
+          if not match:
+              raise SystemExit(f"No CHANGELOG.md section found for {sys.argv[1]}")
+          print(match.group(1).strip())
+          PY
+          )"
+
+          version_id=""
+          for attempt in {1..12}; do
+            version_id="$(curl --fail --silent --show-error \
+              "https://api.comfy.org/nodes/sensenova-u15-t8/versions" \
+              | jq -r --arg version "$version" '.[] | select(.version == $version) | .id' \
+              | head -n 1)"
+            if [[ -n "$version_id" ]]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [[ -z "$version_id" ]]; then
+            echo "Registry version $version was not visible after publication." >&2
+            exit 1
+          fi
+
+          payload="$(jq -n --arg changelog "$changelog" '{changelog: $changelog, deprecated: false}')"
+          curl --fail-with-body --silent --show-error \
+            --request PUT \
+            --header "Authorization: Bearer $REGISTRY_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$payload" \
+            "https://api.comfy.org/publishers/t8star/nodes/sensenova-u15-t8/versions/$version_id"
