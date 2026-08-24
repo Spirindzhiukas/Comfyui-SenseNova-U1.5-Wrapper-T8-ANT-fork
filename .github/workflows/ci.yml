@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   tests:
-    name: Tests (${{ matrix.comfyui.label }})
+    name: Tests (${{ matrix.comfyui.label }}, Python ${{ matrix.comfyui.python }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -17,8 +17,13 @@ jobs:
         comfyui:
           - label: minimum ComfyUI 0.31
             ref: cbbc9dab1f03d0d9a6caa8a8be7d77a7e37e1e44
+            python: "3.12"
           - label: current stable ComfyUI 0.33.1
             ref: v0.33.1
+            python: "3.12"
+          - label: current stable ComfyUI 0.33.1
+            ref: v0.33.1
+            python: "3.13"
     steps:
       - name: Check out tested ComfyUI
         uses: actions/checkout@v7
@@ -33,7 +38,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.comfyui.python }}
           cache: pip
           cache-dependency-path: ComfyUI/requirements.txt
       - name: Install CPU test dependencies

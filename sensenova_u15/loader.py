@@ -1,4 +1,6 @@
 import hashlib
+import json
+from functools import lru_cache
 from pathlib import Path
 
 import torch
@@ -6,11 +8,9 @@ from safetensors import safe_open
 
 import comfy.model_management
 import comfy.model_patcher
-import comfy.ops
 import comfy.sd
 import comfy.utils
 
-from .model import HIDDEN_SIZE, NUM_LAYERS, VOCAB_SIZE, SenseNovaU15
 from .model_config import SenseNovaModelConfig
 
 
@@ -20,6 +20,7 @@ MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT"
 SFT_MODEL_REVISION = "661834c5b5aee0f89958353511d6ac0ccaacb646"
 SFT_MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT-SFT"
 MODEL_FORMAT = "sensenova-u1.5-mot"
+CHECKPOINT_CONTRACT_SHA256 = "d2c3e5d4c929de5641dbd462abf2107526f96020d711cc45043989a34bd22bae"
 MODEL_VARIANTS = {
     "final": {
         "source_repo": MODEL_REPO,
@@ -57,51 +58,74 @@ def _validate_metadata(metadata):
     raise ValueError("SenseNova-U1.5 checkpoint is not a supported Final or SFT model")
 
 
-def _checkpoint_contract():
-    model = SenseNovaU15(
-        device=torch.device("meta"),
-        dtype=torch.bfloat16,
-        operations=comfy.ops.disable_weight_init,
-    )
-    contract = {name: tuple(tensor.shape) for name, tensor in model.state_dict().items()}
-    contract["language_model.lm_head.weight"] = (VOCAB_SIZE, HIDDEN_SIZE)
+@lru_cache(maxsize=1)
+def _checkpoint_contract_data():
+    path = Path(__file__).with_name("checkpoint_contract.json")
+    raw = path.read_bytes() if path.is_file() else b""
+    digest = hashlib.sha256(raw).hexdigest() if raw else None
+    if digest != CHECKPOINT_CONTRACT_SHA256:
+        raise ValueError(
+            "SenseNova-U1.5 bundled checkpoint contract is missing or has been modified: "
+            f"{path}"
+        )
+    data = json.loads(raw)
+    if data.get("format_version") != 1:
+        raise ValueError("SenseNova-U1.5 checkpoint contract version is not supported")
+    if data.get("model_format") != MODEL_FORMAT or data.get("config_sha256") != CONFIG_SHA256:
+        raise ValueError("SenseNova-U1.5 checkpoint contract metadata does not match this node")
+
+    variants = data.get("variants")
+    tensors = data.get("tensors")
+    if not isinstance(variants, dict) or set(variants) != set(MODEL_VARIANTS):
+        raise ValueError("SenseNova-U1.5 checkpoint contract variants are invalid")
+    if not isinstance(tensors, dict) or not tensors:
+        raise ValueError("SenseNova-U1.5 checkpoint contract has no tensors")
+    for variant, expected in MODEL_VARIANTS.items():
+        actual = variants[variant]
+        if actual.get("source_repo") != expected["source_repo"]:
+            raise ValueError(f"SenseNova-U1.5 {variant.upper()} contract repository is invalid")
+        if actual.get("source_revision") != expected["source_revision"]:
+            raise ValueError(f"SenseNova-U1.5 {variant.upper()} contract revision is invalid")
+        if actual.get("tensor_count") != len(tensors):
+            raise ValueError(f"SenseNova-U1.5 {variant.upper()} contract tensor count is invalid")
+    return data
+
+
+@lru_cache(maxsize=len(MODEL_VARIANTS))
+def _checkpoint_contract(variant):
+    if variant not in MODEL_VARIANTS:
+        raise ValueError(f"unsupported SenseNova-U1.5 checkpoint variant: {variant}")
+    contract = {}
+    for name, tensor in _checkpoint_contract_data()["tensors"].items():
+        shape = tensor.get("shape")
+        dtypes = tensor.get("dtypes")
+        if not isinstance(shape, list) or not shape or not all(isinstance(value, int) for value in shape):
+            raise ValueError(f"SenseNova-U1.5 checkpoint contract shape is invalid for {name}")
+        if not isinstance(dtypes, dict) or dtypes.get(variant) not in {"BF16", "F32"}:
+            raise ValueError(f"SenseNova-U1.5 checkpoint contract dtype is invalid for {name}")
+        contract[name] = (tuple(shape), dtypes[variant])
     return contract
 
 
-def _storage_dtype(name, variant="final"):
-    if variant == "sft":
-        return "BF16"
-    if variant != "final":
-        raise ValueError(f"unsupported SenseNova-U1.5 checkpoint variant: {variant}")
-    if name.startswith((
-        "fm_modules.vision_model_mot_gen.",
-        "fm_modules.timestep_embedder.",
-        "fm_modules.noise_scale_embedder.",
-    )):
-        return "F32"
-    layer_prefix = "language_model.model.layers."
-    if name.startswith(layer_prefix) and "_mot_gen" in name:
-        layer = int(name[len(layer_prefix):].split(".", 1)[0])
-        if layer < NUM_LAYERS - 3:
-            return "F32"
-    return "BF16"
-
-
-def _validate_checkpoint_header(checkpoint):
+def _validate_checkpoint_header(checkpoint, model_path=None):
     variant = _validate_metadata(checkpoint.metadata() or {})
-    contract = _checkpoint_contract()
+    contract = _checkpoint_contract(variant)
     actual_keys = set(checkpoint.keys())
     expected_keys = set(contract)
     if actual_keys != expected_keys:
         missing = sorted(expected_keys - actual_keys)[:5]
         unexpected = sorted(actual_keys - expected_keys)[:5]
-        raise ValueError(f"SenseNova-U1.5 checkpoint key mismatch: missing={missing}, unexpected={unexpected}")
-    for name, shape in contract.items():
+        location = f", model={Path(model_path).resolve()}" if model_path is not None else ""
+        raise ValueError(
+            "SenseNova-U1.5 checkpoint key mismatch: "
+            f"missing={missing}, unexpected={unexpected}{location}, loader={Path(__file__).resolve()}. "
+            "Restart ComfyUI after updating the node and remove duplicate or stale node copies."
+        )
+    for name, (shape, expected_dtype) in contract.items():
         tensor = checkpoint.get_slice(name)
         actual_shape = tuple(tensor.get_shape())
         if actual_shape != shape:
             raise ValueError(f"SenseNova-U1.5 checkpoint shape mismatch for {name}: {actual_shape} != {shape}")
-        expected_dtype = _storage_dtype(name, variant)
         if tensor.get_dtype() != expected_dtype:
             raise ValueError(
                 f"SenseNova-U1.5 checkpoint dtype mismatch for {name}: {tensor.get_dtype()} != {expected_dtype}"
@@ -119,11 +143,18 @@ def _validate_tokenizer_assets():
 
 
 def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False):
-    if Path(model_path).suffix.lower() not in (".safetensors", ".sft"):
+    model_path = Path(model_path)
+    if model_path.suffix.lower() not in (".safetensors", ".sft"):
         raise ValueError("SenseNova-U1.5 loader accepts safetensors files only")
     with safe_open(model_path, framework="pt", device="cpu") as checkpoint:
-        expected_keys, variant = _validate_checkpoint_header(checkpoint)
-    state_dict, metadata = comfy.utils.load_torch_file(model_path, return_metadata=True)
+        expected_keys, variant = _validate_checkpoint_header(checkpoint, model_path)
+    expected_size = _checkpoint_contract_data()["variants"][variant]["file_size"]
+    actual_size = model_path.stat().st_size
+    if actual_size != expected_size:
+        raise ValueError(
+            f"SenseNova-U1.5 {variant.upper()} file size mismatch: {actual_size} != {expected_size}"
+        )
+    state_dict, metadata = comfy.utils.load_torch_file(str(model_path), return_metadata=True)
     loaded_variant = _validate_metadata(metadata)
     if loaded_variant != variant:
         raise ValueError("SenseNova-U1.5 checkpoint metadata changed while loading")

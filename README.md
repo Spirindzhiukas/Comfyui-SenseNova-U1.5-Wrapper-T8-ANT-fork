@@ -285,6 +285,16 @@ revision：661834c5b5aee0f89958353511d6ac0ccaacb646
 
 节点会区分 Final/SFT，并检查 metadata、全部 tensor 名称、shape 和各版本的存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
 
+### 出现 `checkpoint key mismatch` 怎么办
+
+先把节点更新到 `1.3.3` 或更高版本，然后彻底关闭并重启 ComfyUI。不要通过修改 loader、关闭动态加载或删除报错键来绕过校验，这可能让模型虽然能运行，但输出模糊、偏色或不遵循提示词。
+
+如果更新后仍报错：
+
+- 检查 `ComfyUI/custom_nodes/` 下是否装了两份本节点，旧目录也会被 ComfyUI 导入。
+- 对照上面的大小和 SHA256，确认底模是本项目发布的 Final 或 SFT 单文件。
+- 保留完整报错；新版错误会同时显示实际 `model=` 和 `loader=` 路径，可直接看出 ComfyUI 加载的是哪一份文件。
+
 8-step LoRA 校验：
 
 ```text
