@@ -55,7 +55,8 @@ class LoaderTests(unittest.TestCase):
     def test_bundled_checkpoint_contract_is_complete_and_variant_specific(self):
         data = loader._checkpoint_contract_data()
         contract_path = Path(loader.__file__).with_name("checkpoint_contract.json")
-        self.assertEqual(hashlib.sha256(contract_path.read_bytes()).hexdigest(), loader.CHECKPOINT_CONTRACT_SHA256)
+        canonical_raw = contract_path.read_bytes().replace(b"\r\n", b"\n")
+        self.assertEqual(hashlib.sha256(canonical_raw).hexdigest(), loader.CHECKPOINT_CONTRACT_SHA256)
         final = loader._checkpoint_contract("final")
         sft = loader._checkpoint_contract("sft")
         self.assertEqual(len(final), 1116)

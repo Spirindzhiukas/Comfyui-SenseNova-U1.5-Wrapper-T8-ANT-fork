@@ -20,7 +20,7 @@ MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT"
 SFT_MODEL_REVISION = "661834c5b5aee0f89958353511d6ac0ccaacb646"
 SFT_MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT-SFT"
 MODEL_FORMAT = "sensenova-u1.5-mot"
-CHECKPOINT_CONTRACT_SHA256 = "d2c3e5d4c929de5641dbd462abf2107526f96020d711cc45043989a34bd22bae"
+CHECKPOINT_CONTRACT_SHA256 = "5421664318d13e69f31ef7ed55e923eca699e3655fde9ecdf6df3de2834f2482"
 MODEL_VARIANTS = {
     "final": {
         "source_repo": MODEL_REPO,
@@ -62,7 +62,8 @@ def _validate_metadata(metadata):
 def _checkpoint_contract_data():
     path = Path(__file__).with_name("checkpoint_contract.json")
     raw = path.read_bytes() if path.is_file() else b""
-    digest = hashlib.sha256(raw).hexdigest() if raw else None
+    canonical_raw = raw.replace(b"\r\n", b"\n")
+    digest = hashlib.sha256(canonical_raw).hexdigest() if canonical_raw else None
     if digest != CHECKPOINT_CONTRACT_SHA256:
         raise ValueError(
             "SenseNova-U1.5 bundled checkpoint contract is missing or has been modified: "
