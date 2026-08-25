@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import comfy.patcher_extension
-import comfy.quant_ops
 from comfy.ldm.common_dit import pad_to_patch_size
 from comfy.ldm.flux.math import apply_rope1
 from comfy.ldm.modules.attention import optimized_attention
@@ -53,17 +52,22 @@ def _apply_llm_rope(query, key, positions, theta):
     if positions.ndim == 1:
         positions = positions.unsqueeze(0)
     angles = positions.unsqueeze(-1) * frequencies
-    cosine = angles.cos()
-    sine = angles.sin()
-    rotation = torch.stack((cosine, -sine, sine, cosine), dim=-1).reshape(
-        *angles.shape, 2, 2
-    ).unsqueeze(2).to(query.dtype)
-    query, key = comfy.quant_ops.ck.apply_rope_split_half(
-        query.transpose(1, 2),
-        key.transpose(1, 2),
-        rotation,
+    embedding = torch.cat((angles, angles), dim=-1).unsqueeze(1)
+    cosine = embedding.cos().to(query.dtype)
+    sine = embedding.sin().to(query.dtype)
+
+    def rotate_half(value):
+        first, second = value.chunk(2, dim=-1)
+        return torch.cat((-second, first), dim=-1)
+
+    # Keep this split-half RoPE on the reference PyTorch formula. The
+    # comfy-kitchen CUDA kernel is selected automatically on CUDA 13 builds;
+    # on Blackwell it can return finite but numerically incorrect values, which
+    # corrupts the generated image without raising an execution error.
+    return (
+        query * cosine + rotate_half(query) * sine,
+        key * cosine + rotate_half(key) * sine,
     )
-    return query.transpose(1, 2), key.transpose(1, 2)
 
 
 def _apply_interleaved_rope(value, positions, theta):
@@ -72,10 +76,14 @@ def _apply_interleaved_rope(value, positions, theta):
     angles = positions.to(device=value.device, dtype=torch.float32).unsqueeze(-1) * frequencies
     cosine = angles.cos()
     sine = angles.sin()
+    # comfy-kitchen acceleration backends use the canonical four-dimensional
+    # input and six-dimensional rotation layout. SenseNova's vision patches
+    # have no head axis, so add a singleton one instead of relying on the eager
+    # backend's more permissive rank handling.
     rotation = torch.stack((cosine, -sine, sine, cosine), dim=-1).reshape(
-        1, *angles.shape, 2, 2
+        1, 1, *angles.shape, 2, 2
     )
-    return apply_rope1(value.float(), rotation)
+    return apply_rope1(value.float().unsqueeze(1), rotation).squeeze(1)
 
 
 class TimestepEmbedder(nn.Module):

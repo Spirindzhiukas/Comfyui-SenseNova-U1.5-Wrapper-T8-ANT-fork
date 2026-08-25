@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import torch
 
@@ -9,6 +10,8 @@ COMFY_ROOT = Path(__file__).resolve().parents[3]
 if str(COMFY_ROOT) not in sys.path:
     sys.path.insert(0, str(COMFY_ROOT))
 
+import comfy.quant_ops
+import sensenova_u15.model as model_module
 from sensenova_u15.model import _apply_interleaved_rope, _apply_llm_rope
 
 
@@ -31,7 +34,12 @@ class RopeTests(unittest.TestCase):
         expected_query = query * cosine + rotate_half(query) * sine
         expected_key = key * cosine + rotate_half(key) * sine
 
-        actual_query, actual_key = _apply_llm_rope(query, key, positions, 5000000.0)
+        with mock.patch.object(
+            comfy.quant_ops.ck,
+            "apply_rope_split_half",
+            side_effect=AssertionError("SenseNova split-half RoPE must not dispatch to comfy-kitchen"),
+        ):
+            actual_query, actual_key = _apply_llm_rope(query, key, positions, 5000000.0)
         torch.testing.assert_close(actual_query, expected_query, rtol=0, atol=0)
         torch.testing.assert_close(actual_key, expected_key, rtol=0, atol=0)
 
@@ -49,6 +57,18 @@ class RopeTests(unittest.TestCase):
 
         actual = _apply_interleaved_rope(value, positions, 10000.0)
         torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-6)
+
+    def test_interleaved_rope_uses_accelerated_backend_supported_ranks(self):
+        value = torch.randn((2, 7, 32), dtype=torch.bfloat16, generator=torch.Generator().manual_seed(2))
+        positions = torch.arange(7)
+
+        with mock.patch.object(model_module, "apply_rope1", wraps=model_module.apply_rope1) as apply_rope:
+            actual = _apply_interleaved_rope(value, positions, 10000.0)
+
+        rope_value, rotation = apply_rope.call_args.args
+        self.assertEqual(rope_value.shape, (2, 1, 7, 32))
+        self.assertEqual(rotation.shape, (1, 1, 7, 16, 2, 2))
+        self.assertEqual(actual.shape, value.shape)
 
 
 if __name__ == "__main__":
