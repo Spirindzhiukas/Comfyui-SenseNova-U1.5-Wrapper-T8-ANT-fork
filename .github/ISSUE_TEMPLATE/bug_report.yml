@@ -1,0 +1,82 @@
+name: Bug report
+description: Report a reproducible loading, sampling, output, or workflow problem.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please keep the original error text and attach the smallest workflow that reproduces it. Do not include API keys or other secrets.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+      placeholder: Describe the visible result or complete error.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Include the workflow, model choice, prompt, seed, sampler, scheduler, steps, CFG, shift, and image size when relevant.
+      placeholder: |
+        1. Load ...
+        2. Set ...
+        3. Queue the prompt ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Paste the relevant ComfyUI startup information.
+      placeholder: |
+        OS:
+        GPU and VRAM:
+        ComfyUI version:
+        SenseNova node version:
+        Python version:
+        PyTorch and CUDA/ROCm version:
+        ComfyUI launch arguments:
+    validations:
+      required: true
+  - type: textarea
+    id: model
+    attributes:
+      label: Model file
+      description: Include the exact filename, Final/SFT variant, byte size, and SHA256. Do not attach the model itself.
+      placeholder: |
+        Filename:
+        Variant:
+        Size:
+        SHA256:
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow and output
+      description: Drag the workflow JSON and an original output PNG here. Original PNG metadata is useful; screenshots alone are not enough for output-quality bugs.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Complete log
+      description: Paste the log from ComfyUI startup through the failed or incorrect generation.
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks completed
+      options:
+        - label: I updated this node to the latest release and completely restarted ComfyUI.
+          required: true
+        - label: I checked `ComfyUI/custom_nodes` and confirmed that this node is not installed twice.
+          required: true
+        - label: I removed API keys, tokens, private paths, and other secrets from the report.
+          required: true

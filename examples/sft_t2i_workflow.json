@@ -71,7 +71,7 @@
       "inputs": [],
       "outputs": [{"name": "LATENT", "type": "LATENT", "links": [8]}],
       "properties": {"Node name for S&R": "EmptySenseNovaLatentImage"},
-      "widgets_values": [1024, 1024, 1]
+      "widgets_values": [1024, 1024, 1, "Custom (use width / height)"]
     },
     {
       "id": 6,

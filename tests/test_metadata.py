@@ -16,7 +16,7 @@ class MetadataTests(unittest.TestCase):
     def test_registry_metadata(self):
         metadata = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["name"], "sensenova-u15-t8")
-        self.assertEqual(metadata["project"]["version"], "1.3.4")
+        self.assertEqual(metadata["project"]["version"], "1.3.5")
         self.assertEqual(metadata["tool"]["comfy"]["PublisherId"], "t8star")
         self.assertEqual(metadata["tool"]["comfy"]["DisplayName"], "SenseNova U1.5 (T8)")
         self.assertTrue(metadata["project"]["urls"]["Model Download"].startswith("https://huggingface.co/t8star/"))
@@ -47,6 +47,18 @@ class MetadataTests(unittest.TestCase):
         patterns = set((PACKAGE_ROOT / ".comfyignore").read_text(encoding="utf-8").splitlines())
         self.assertTrue({"roadmap.md", "*.safetensors", "oracles/", "tools/"}.issubset(patterns))
         self.assertFalse(any(pattern in {"*.json", "sensenova_u15/", "checkpoint_contract.json"} for pattern in patterns))
+
+    def test_github_maintenance_configuration(self):
+        ci = (PACKAGE_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        self.assertIn("ref: v0.34.0", ci)
+        self.assertIn('python: "3.10"', ci)
+        self.assertIn('python: "3.14"', ci)
+        self.assertIn("ruff==0.16.4", ci)
+        dependabot = (PACKAGE_ROOT / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+        self.assertIn("package-ecosystem: github-actions", dependabot)
+        bug_form = (PACKAGE_ROOT / ".github" / "ISSUE_TEMPLATE" / "bug_report.yml").read_text(encoding="utf-8")
+        for field in ("id: environment", "id: model", "id: workflow", "id: logs"):
+            self.assertIn(field, bug_form)
 
     def test_readme_local_links_and_visuals_exist(self):
         for readme_name in ("README.md", "README_EN.md"):

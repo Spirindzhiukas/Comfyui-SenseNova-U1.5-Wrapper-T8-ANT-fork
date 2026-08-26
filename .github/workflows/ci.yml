@@ -8,6 +8,21 @@ permissions:
   contents: read
 
 jobs:
+  lint:
+    name: Lint (Ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out node
+        uses: actions/checkout@v7
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install Ruff
+        run: python -m pip install ruff==0.16.4
+      - name: Check Python sources
+        run: ruff check .
+
   tests:
     name: Tests (${{ matrix.comfyui.label }}, Python ${{ matrix.comfyui.python }})
     runs-on: ubuntu-latest
@@ -17,18 +32,21 @@ jobs:
         comfyui:
           - label: minimum ComfyUI 0.31
             ref: cbbc9dab1f03d0d9a6caa8a8be7d77a7e37e1e44
+            python: "3.10"
+          - label: current stable ComfyUI 0.34.0
+            ref: v0.34.0
             python: "3.12"
-          - label: current stable ComfyUI 0.33.1
-            ref: v0.33.1
-            python: "3.12"
-          - label: current stable ComfyUI 0.33.1
-            ref: v0.33.1
+          - label: current stable ComfyUI 0.34.0
+            ref: v0.34.0
             python: "3.13"
+          - label: current stable ComfyUI 0.34.0
+            ref: v0.34.0
+            python: "3.14"
     steps:
       - name: Check out tested ComfyUI
         uses: actions/checkout@v7
         with:
-          repository: comfyanonymous/ComfyUI
+          repository: Comfy-Org/ComfyUI
           ref: ${{ matrix.comfyui.ref }}
           path: ComfyUI
       - name: Check out node

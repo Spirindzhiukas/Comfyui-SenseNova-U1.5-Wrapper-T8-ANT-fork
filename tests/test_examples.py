@@ -51,14 +51,16 @@ class ExampleWorkflowTests(unittest.TestCase):
 
     def test_frontend_t2i_uses_official_defaults(self):
         workflow = self.load_example("t2i_workflow.json")
+        loader = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaU15Loader")
         sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
+        self.assertEqual(loader["widgets_values"], ["SenseNova-U1.5-8B-MoT-BF16-T8.safetensors"])
         self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
 
     def test_batch_t2i_generates_two_variants_at_a_safe_example_resolution(self):
         workflow = self.load_example("batch_t2i_workflow.json")
         latent = next(node for node in workflow["nodes"] if node["type"] == "EmptySenseNovaLatentImage")
         sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
-        self.assertEqual(latent["widgets_values"], [768, 768, 2])
+        self.assertEqual(latent["widgets_values"], [768, 768, 2, "Custom (use width / height)"])
         self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
 
     def test_sft_examples_select_sft_checkpoint_and_keep_50_steps(self):
@@ -81,7 +83,7 @@ class ExampleWorkflowTests(unittest.TestCase):
         self.assertEqual(lora["widgets_values"], ["SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors", 1])
         self.assertEqual(sampler["widgets_values"][2:], [8, 1, "euler", "normal", 1])
         self.assertEqual(options["widgets_values"], [3])
-        self.assertEqual(latent["widgets_values"], [2048, 2048, 1])
+        self.assertEqual(latent["widgets_values"], [2048, 2048, 1, "1:1 — 2048 × 2048"])
         links = {link[0]: link for link in workflow["links"]}
         self.assertEqual(links[lora["inputs"][0]["link"]][1:3], [1, 0])
         self.assertEqual(links[options["inputs"][0]["link"]][1:3], [2, 0])
@@ -104,7 +106,7 @@ class ExampleWorkflowTests(unittest.TestCase):
         self.assertEqual(guider["widgets_values"], [4, 1, "global", 0, 1])
         self.assertEqual(scheduler["widgets_values"], ["normal", 50, 1])
         latent = next(node for node in multi["nodes"] if node["type"] == "EmptySenseNovaLatentImage")
-        self.assertEqual(latent["widgets_values"], [2048, 2048, 1])
+        self.assertEqual(latent["widgets_values"], [2048, 2048, 1, "1:1 — 2048 × 2048"])
         links = {link[0]: link for link in multi["links"]}
         guider_model = links[guider["inputs"][0]["link"]][1:3]
         scheduler_model = links[scheduler["inputs"][0]["link"]][1:3]

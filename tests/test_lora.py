@@ -10,10 +10,11 @@ if str(COMFY_ROOT) not in sys.path:
     sys.path.insert(0, str(COMFY_ROOT))
 
 import sensenova_u15.lora as lora
+import sensenova_u15.loader as loader
 
 
 class FakeModel:
-    def __init__(self, variant, *, repo=lora.MODEL_REPO, revision=lora.MODEL_REVISION, applied=False):
+    def __init__(self, variant, *, repo=lora.MODEL_REPO, revision=loader.MODEL_REVISION, applied=False):
         self.variant = variant
         self.repo = repo
         self.revision = revision
@@ -31,6 +32,8 @@ class EightStepLoRATests(unittest.TestCase):
     def test_final_only_guard_runs_even_when_strength_is_zero(self):
         final = FakeModel("final")
         self.assertIs(lora.apply_eight_step_lora(final, "unused.safetensors", 0), final)
+        legacy_final = FakeModel("final", revision=loader.LEGACY_MODEL_REVISION)
+        self.assertIs(lora.apply_eight_step_lora(legacy_final, "unused.safetensors", 0), legacy_final)
         with self.assertRaisesRegex(ValueError, "fixed official Final checkpoint"):
             lora.apply_eight_step_lora(FakeModel("sft"), "unused.safetensors", 0)
 

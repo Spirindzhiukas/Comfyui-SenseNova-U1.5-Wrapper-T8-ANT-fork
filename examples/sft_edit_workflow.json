@@ -37,7 +37,7 @@
     },
     {
       "id": 7, "type": "EmptySenseNovaLatentImage", "pos": [890, 390], "size": [280, 130], "flags": {}, "order": 6, "mode": 0, "inputs": [],
-      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [11]}], "properties": {"Node name for S&R": "EmptySenseNovaLatentImage"}, "widgets_values": [1024, 1024, 1]
+      "outputs": [{"name": "LATENT", "type": "LATENT", "links": [11]}], "properties": {"Node name for S&R": "EmptySenseNovaLatentImage"}, "widgets_values": [1024, 1024, 1, "Custom (use width / height)"]
     },
     {
       "id": 8, "type": "KSampler", "pos": [1240, 0], "size": [310, 270], "flags": {}, "order": 7, "mode": 0,

@@ -23,6 +23,16 @@ from .sensenova_u15.guidance import (
 from .sensenova_u15.sampling import SenseNovaModelSampling
 
 
+RESOLUTION_PRESETS = {
+    "Custom (use width / height)": None,
+    "1:1 — 2048 × 2048": (2048, 2048),
+    "16:9 — 2720 × 1536": (2720, 1536),
+    "9:16 — 1536 × 2720": (1536, 2720),
+    "2:3 — 1664 × 2496": (1664, 2496),
+    "3:2 — 2496 × 1664": (2496, 1664),
+}
+
+
 class SenseNovaU15Loader(io.ComfyNode):
     @classmethod
     def define_schema(cls):
@@ -65,12 +75,24 @@ class EmptySenseNovaLatentImage(io.ComfyNode):
                     max=16,
                     tooltip="Generate 1-16 variants with the same prompt and reference images. Lower the resolution when using larger batches.",
                 ),
+                io.Combo.Input(
+                    id="resolution_preset",
+                    options=list(RESOLUTION_PRESETS),
+                    default="Custom (use width / height)",
+                    optional=True,
+                    tooltip="Official SenseNova aspect-ratio presets. Custom keeps the width and height above.",
+                ),
             ],
             outputs=[io.Latent.Output()],
         )
 
     @classmethod
-    def execute(cls, *, width, height, batch_size=1):
+    def execute(cls, *, width, height, batch_size=1, resolution_preset="Custom (use width / height)"):
+        if resolution_preset not in RESOLUTION_PRESETS:
+            raise ValueError(f"unsupported SenseNova resolution preset: {resolution_preset}")
+        preset = RESOLUTION_PRESETS[resolution_preset]
+        if preset is not None:
+            width, height = preset
         samples = torch.zeros(
             (batch_size, 3, height, width),
             device=comfy.model_management.intermediate_device(),

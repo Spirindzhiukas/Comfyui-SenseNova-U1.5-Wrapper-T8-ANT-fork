@@ -2,6 +2,13 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
+## [1.3.5] - 2026-08-26
+
+- 支持官方 revision `19bc874e` 的全 BF16 Final 权重及约 35 GB 的新版 ComfyUI 单文件，同时继续严格校验并兼容原有约 50 GB 的混合精度 Final；两者都可使用现有 8-step LoRA。
+- `Empty SenseNova Pixel Latent` 新增官方建议的 1:1、16:9、9:16、2:3、3:2 分辨率预设，保留原有自定义宽高和旧工作流输入顺序。
+- CI 更新到 ComfyUI v0.34.0，覆盖 Python 3.10～3.14，并加入 Ruff 静态检查。
+- 添加 GitHub Bug/Feature Issue 表单与 GitHub Actions Dependabot 更新配置；主分支启用必需 CI、禁止强推和删除保护。
+
 ## [1.3.4] - 2026-08-25
 
 - 修复 CUDA 13 / Blackwell 环境启用 `comfy-kitchen` CUDA 后端时，split-half RoPE 可能返回有限但错误的数值，导致生成结果严重偏色、过饱和和结构异常的问题；语言层 RoPE 现在固定使用与官方一致的 PyTorch 参考公式。

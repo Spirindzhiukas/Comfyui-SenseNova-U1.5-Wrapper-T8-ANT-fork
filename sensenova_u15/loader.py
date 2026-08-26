@@ -15,18 +15,27 @@ from .model_config import SenseNovaModelConfig
 
 
 CONFIG_SHA256 = "6497591f64cb0dd6917fbb10c0cd13024e5817179a9aa3700998eb137a553d6b"
-MODEL_REVISION = "1f6ec60423d29939dde4202fd82ae340b144e280"
 MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT"
+MODEL_REVISION = "19bc874ef6ffc97fda9837b40fc1d1301806158a"
+LEGACY_MODEL_REVISION = "1f6ec60423d29939dde4202fd82ae340b144e280"
+FINAL_MODEL_REVISIONS = (MODEL_REVISION, LEGACY_MODEL_REVISION)
 SFT_MODEL_REVISION = "661834c5b5aee0f89958353511d6ac0ccaacb646"
 SFT_MODEL_REPO = "sensenova/SenseNova-U1.5-8B-MoT-SFT"
 MODEL_FORMAT = "sensenova-u1.5-mot"
-CHECKPOINT_CONTRACT_SHA256 = "5421664318d13e69f31ef7ed55e923eca699e3655fde9ecdf6df3de2834f2482"
-MODEL_VARIANTS = {
+CHECKPOINT_CONTRACT_SHA256 = "947b59973a054a3efa29dead737baae0bfbbacbe9158500a391a8de27a11f53c"
+CHECKPOINT_PROFILES = {
     "final": {
+        "variant": "final",
         "source_repo": MODEL_REPO,
         "source_revision": MODEL_REVISION,
     },
+    "final_legacy": {
+        "variant": "final",
+        "source_repo": MODEL_REPO,
+        "source_revision": LEGACY_MODEL_REVISION,
+    },
     "sft": {
+        "variant": "sft",
         "source_repo": SFT_MODEL_REPO,
         "source_revision": SFT_MODEL_REVISION,
     },
@@ -48,13 +57,19 @@ def _validate_metadata(metadata):
         raise ValueError("SenseNova-U1.5 config digest does not match this node version")
     source_repo = metadata.get("source_repo")
     source_revision = metadata.get("source_revision")
-    for variant, contract in MODEL_VARIANTS.items():
-        if source_repo == contract["source_repo"]:
-            if source_revision != contract["source_revision"]:
-                raise ValueError(
-                    f"SenseNova-U1.5 {variant.upper()} model revision does not match this node version"
-                )
-            return variant
+    matching_profiles = [
+        (profile, contract)
+        for profile, contract in CHECKPOINT_PROFILES.items()
+        if source_repo == contract["source_repo"]
+    ]
+    for profile, contract in matching_profiles:
+        if source_revision == contract["source_revision"]:
+            return profile
+    if matching_profiles:
+        variant = matching_profiles[0][1]["variant"]
+        raise ValueError(
+            f"SenseNova-U1.5 {variant.upper()} model revision does not match this node version"
+        )
     raise ValueError("SenseNova-U1.5 checkpoint is not a supported Final or SFT model")
 
 
@@ -77,40 +92,40 @@ def _checkpoint_contract_data():
 
     variants = data.get("variants")
     tensors = data.get("tensors")
-    if not isinstance(variants, dict) or set(variants) != set(MODEL_VARIANTS):
+    if not isinstance(variants, dict) or set(variants) != set(CHECKPOINT_PROFILES):
         raise ValueError("SenseNova-U1.5 checkpoint contract variants are invalid")
     if not isinstance(tensors, dict) or not tensors:
         raise ValueError("SenseNova-U1.5 checkpoint contract has no tensors")
-    for variant, expected in MODEL_VARIANTS.items():
-        actual = variants[variant]
+    for profile, expected in CHECKPOINT_PROFILES.items():
+        actual = variants[profile]
         if actual.get("source_repo") != expected["source_repo"]:
-            raise ValueError(f"SenseNova-U1.5 {variant.upper()} contract repository is invalid")
+            raise ValueError(f"SenseNova-U1.5 {profile.upper()} contract repository is invalid")
         if actual.get("source_revision") != expected["source_revision"]:
-            raise ValueError(f"SenseNova-U1.5 {variant.upper()} contract revision is invalid")
+            raise ValueError(f"SenseNova-U1.5 {profile.upper()} contract revision is invalid")
         if actual.get("tensor_count") != len(tensors):
-            raise ValueError(f"SenseNova-U1.5 {variant.upper()} contract tensor count is invalid")
+            raise ValueError(f"SenseNova-U1.5 {profile.upper()} contract tensor count is invalid")
     return data
 
 
-@lru_cache(maxsize=len(MODEL_VARIANTS))
-def _checkpoint_contract(variant):
-    if variant not in MODEL_VARIANTS:
-        raise ValueError(f"unsupported SenseNova-U1.5 checkpoint variant: {variant}")
+@lru_cache(maxsize=len(CHECKPOINT_PROFILES))
+def _checkpoint_contract(profile):
+    if profile not in CHECKPOINT_PROFILES:
+        raise ValueError(f"unsupported SenseNova-U1.5 checkpoint profile: {profile}")
     contract = {}
     for name, tensor in _checkpoint_contract_data()["tensors"].items():
         shape = tensor.get("shape")
         dtypes = tensor.get("dtypes")
         if not isinstance(shape, list) or not shape or not all(isinstance(value, int) for value in shape):
             raise ValueError(f"SenseNova-U1.5 checkpoint contract shape is invalid for {name}")
-        if not isinstance(dtypes, dict) or dtypes.get(variant) not in {"BF16", "F32"}:
+        if not isinstance(dtypes, dict) or dtypes.get(profile) not in {"BF16", "F32"}:
             raise ValueError(f"SenseNova-U1.5 checkpoint contract dtype is invalid for {name}")
-        contract[name] = (tuple(shape), dtypes[variant])
+        contract[name] = (tuple(shape), dtypes[profile])
     return contract
 
 
 def _validate_checkpoint_header(checkpoint, model_path=None):
-    variant = _validate_metadata(checkpoint.metadata() or {})
-    contract = _checkpoint_contract(variant)
+    profile = _validate_metadata(checkpoint.metadata() or {})
+    contract = _checkpoint_contract(profile)
     actual_keys = set(checkpoint.keys())
     expected_keys = set(contract)
     if actual_keys != expected_keys:
@@ -131,7 +146,7 @@ def _validate_checkpoint_header(checkpoint, model_path=None):
             raise ValueError(
                 f"SenseNova-U1.5 checkpoint dtype mismatch for {name}: {tensor.get_dtype()} != {expected_dtype}"
             )
-    return expected_keys, variant
+    return expected_keys, profile
 
 
 def _validate_tokenizer_assets():
@@ -148,16 +163,17 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     if model_path.suffix.lower() not in (".safetensors", ".sft"):
         raise ValueError("SenseNova-U1.5 loader accepts safetensors files only")
     with safe_open(model_path, framework="pt", device="cpu") as checkpoint:
-        expected_keys, variant = _validate_checkpoint_header(checkpoint, model_path)
-    expected_size = _checkpoint_contract_data()["variants"][variant]["file_size"]
+        expected_keys, profile = _validate_checkpoint_header(checkpoint, model_path)
+    expected_size = _checkpoint_contract_data()["variants"][profile]["file_size"]
     actual_size = model_path.stat().st_size
     if actual_size != expected_size:
+        variant = CHECKPOINT_PROFILES[profile]["variant"]
         raise ValueError(
             f"SenseNova-U1.5 {variant.upper()} file size mismatch: {actual_size} != {expected_size}"
         )
     state_dict, metadata = comfy.utils.load_torch_file(str(model_path), return_metadata=True)
-    loaded_variant = _validate_metadata(metadata)
-    if loaded_variant != variant:
+    loaded_profile = _validate_metadata(metadata)
+    if loaded_profile != profile:
         raise ValueError("SenseNova-U1.5 checkpoint metadata changed while loading")
     if set(state_dict) != expected_keys:
         raise ValueError("SenseNova-U1.5 loaded state dict does not match the validated header")
@@ -185,9 +201,10 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     patcher.set_attachments(
         "sensenova_checkpoint",
         {
-            "variant": variant,
-            "source_repo": MODEL_VARIANTS[variant]["source_repo"],
-            "source_revision": MODEL_VARIANTS[variant]["source_revision"],
+            "variant": CHECKPOINT_PROFILES[profile]["variant"],
+            "profile": profile,
+            "source_repo": CHECKPOINT_PROFILES[profile]["source_repo"],
+            "source_revision": CHECKPOINT_PROFILES[profile]["source_revision"],
         },
     )
     return patcher

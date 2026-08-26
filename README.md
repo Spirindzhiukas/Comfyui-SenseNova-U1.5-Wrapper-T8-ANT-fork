@@ -46,7 +46,8 @@ git clone https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8.git
 
 | 文件 | 放置位置 | 用途 |
 |---|---|---|
-| `SenseNova-U1.5-8B-MoT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 最终版单文件底模，约 50 GB |
+| `SenseNova-U1.5-8B-MoT-BF16-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 Final 新版全 BF16 单文件，约 35 GB，推荐下载 |
+| `SenseNova-U1.5-8B-MoT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 Final 旧版混合精度单文件，约 50 GB，继续兼容 |
 | `SenseNova-U1.5-8B-MoT-SFT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 SFT 单文件底模，约 35 GB |
 | `SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors` | `ComfyUI/models/loras/` | 官方 8-step LoRA 的 ComfyUI 原生键名版本，约 815 MB |
 
@@ -64,13 +65,14 @@ ComfyUI/models/loras/
 
 Manager 只安装节点，不会自动下载模型。
 
-Final 和 SFT 都是 SenseNova U1.5，本节点都支持 50 步文生图和图像编辑。两者是不同训练阶段的权重，不要混为同一个文件。
+Final 和 SFT 都是 SenseNova U1.5，本节点都支持 50 步文生图和图像编辑。新版 BF16 Final 是官方在相同 Final 模型上进行的全 BF16 转换和重新分片；节点同时严格支持新版 35 GB Final 和旧版 50 GB Final。SFT 是不同训练阶段的独立权重，不要混为同一个文件。
 
 注意：官方 8-step LoRA 必须搭配 Final，不能搭配 SFT 或 Preview。专用的 `SenseNova U1.5 8-Step LoRA` 节点会检查底模，接错时直接给出说明。
 
 | 文件/组合 | 本节点支持 | 说明 |
 |---|---:|---|
-| U1.5 Final，50 步生成/编辑 | ✅ | 当前主模型 |
+| U1.5 Final BF16，50 步生成/编辑 | ✅ | 当前推荐模型，约 35 GB |
+| U1.5 Final 旧版混合精度，50 步生成/编辑 | ✅ | 兼容已有下载，约 50 GB |
 | U1.5 Final + `-ComfyUI` 8-step LoRA | ✅ | 仅用于 8 步文生图 |
 | U1.5 SFT，50 步生成/编辑 | ✅ | 独立单文件底模，不叠加 8-step LoRA |
 | U1.5 Preview | ❌ | 旧预览权重 |
@@ -99,6 +101,16 @@ sampler: euler
 scheduler: normal
 denoise: 1
 ```
+
+`Empty SenseNova Pixel Latent` 还提供官方建议的分辨率预设；选择 `Custom` 时继续使用节点上的 width 和 height：
+
+| 比例 | 分辨率 |
+|---|---:|
+| 1:1 | 2048 × 2048 |
+| 16:9 | 2720 × 1536 |
+| 9:16 | 1536 × 2720 |
+| 2:3 | 1664 × 2496 |
+| 3:2 | 2496 × 1664 |
 
 复杂编辑建议在 `SenseNova Edit Guider` 中先用：
 
@@ -248,9 +260,11 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 
 ## 运行要求
 
-当前实测环境：
+当前实机和 CI 验证范围：
 
-- ComfyUI `v0.33.0`
+- 实机 ComfyUI `v0.33.x`
+- CI：最低支持的 ComfyUI `0.31`，以及当前稳定版 `v0.34.0`
+- Python `3.10`、`3.12`、`3.13`、`3.14`
 - NVIDIA CUDA + BF16
 - RTX 5090 Laptop 24 GB
 - 64 GB 系统内存
@@ -267,9 +281,20 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 
 ## 模型校验
 
-Final：
+Final BF16（推荐）：
 
 ```text
+文件：SenseNova-U1.5-8B-MoT-BF16-T8.safetensors
+大小：35,065,860,328 bytes
+SHA256：a32b117f40ad4575c6709b3ad6efb1c6b743ef1c1c3d75360f14090b997f1d29
+官方 revision：19bc874ef6ffc97fda9837b40fc1d1301806158a
+tensor：1116（全部 BF16）
+```
+
+Final 旧版混合精度（继续兼容）：
+
+```text
+文件：SenseNova-U1.5-8B-MoT-T8.safetensors
 大小：50,222,155,152 bytes
 SHA256：2e5c4451969a8af9d7bcbf9d00a0fe463b15ed44149d8d79f31409e671587615
 tensor：1116
@@ -285,11 +310,11 @@ tensor：1116（全部 BF16）
 revision：661834c5b5aee0f89958353511d6ac0ccaacb646
 ```
 
-节点会区分 Final/SFT，并检查 metadata、全部 tensor 名称、shape 和各版本的存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
+节点会区分新版 Final、旧版 Final 和 SFT，并检查 metadata、全部 tensor 名称、shape 和各版本的存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
 
 ### 出现 `checkpoint key mismatch` 怎么办
 
-先把节点更新到 `1.3.3` 或更高版本，然后彻底关闭并重启 ComfyUI。不要通过修改 loader、关闭动态加载或删除报错键来绕过校验，这可能让模型虽然能运行，但输出模糊、偏色或不遵循提示词。
+先把节点更新到 `1.3.5` 或更高版本，然后彻底关闭并重启 ComfyUI。不要通过修改 loader、关闭动态加载或删除报错键来绕过校验，这可能让模型虽然能运行，但输出模糊、偏色或不遵循提示词。
 
 如果更新后仍报错：
 
@@ -313,6 +338,7 @@ tensor：882
 需要手动检查下载文件时：
 
 ```powershell
+Get-FileHash .\SenseNova-U1.5-8B-MoT-BF16-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-SFT-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors -Algorithm SHA256

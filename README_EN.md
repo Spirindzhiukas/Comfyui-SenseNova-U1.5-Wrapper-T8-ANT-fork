@@ -49,7 +49,8 @@ Download only the files you need:
 
 | File | Place it in | Purpose |
 |---|---|---|
-| `SenseNova-U1.5-8B-MoT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 Final single-file checkpoint, about 50 GB |
+| `SenseNova-U1.5-8B-MoT-BF16-T8.safetensors` | `ComfyUI/models/diffusion_models/` | Current all-BF16 U1.5 Final single file, about 35 GB; recommended |
+| `SenseNova-U1.5-8B-MoT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | Legacy mixed-precision U1.5 Final single file, about 50 GB; still supported |
 | `SenseNova-U1.5-8B-MoT-SFT-T8.safetensors` | `ComfyUI/models/diffusion_models/` | U1.5 SFT single-file checkpoint, about 35 GB |
 | `SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors` | `ComfyUI/models/loras/` | ComfyUI-native conversion of the official 8-step LoRA, about 815 MB |
 
@@ -67,13 +68,14 @@ ComfyUI/models/loras/
 
 ComfyUI-Manager installs the nodes only. It does not download these model files.
 
-Final and SFT are both SenseNova U1.5 checkpoints. Both support 50-step generation and editing, but they represent different training stages and are separate files.
+Final and SFT are both SenseNova U1.5 checkpoints. The current BF16 Final is the official all-BF16 conversion and re-shard of the same Final model; this node strictly supports both the current 35 GB Final and the legacy 50 GB Final. SFT is a separate training-stage checkpoint.
 
 The official 8-step LoRA must be used with Final. Do not apply it to SFT or Preview. The dedicated `SenseNova U1.5 8-Step LoRA` node checks the base model and gives a clear error if the combination is invalid.
 
 | File or combination | Supported | Notes |
 |---|---:|---|
-| U1.5 Final, 50-step generation/editing | ✅ | Main release checkpoint |
+| U1.5 Final BF16, 50-step generation/editing | ✅ | Current recommended checkpoint, about 35 GB |
+| Legacy mixed-precision U1.5 Final, 50-step generation/editing | ✅ | Existing downloads remain supported, about 50 GB |
 | U1.5 Final + `-ComfyUI` 8-step LoRA | ✅ | 8-step text-to-image only |
 | U1.5 SFT, 50-step generation/editing | ✅ | Standalone checkpoint; do not add the 8-step LoRA |
 | U1.5 Preview | ❌ | Older preview checkpoint |
@@ -102,6 +104,16 @@ sampler: euler
 scheduler: normal
 denoise: 1
 ```
+
+`Empty SenseNova Pixel Latent` also exposes the official suggested resolution presets. Select `Custom` to keep using the width and height fields:
+
+| Aspect ratio | Resolution |
+|---|---:|
+| 1:1 | 2048 × 2048 |
+| 16:9 | 2720 × 1536 |
+| 9:16 | 1536 × 2720 |
+| 2:3 | 1664 × 2496 |
+| 3:2 | 2496 × 1664 |
 
 For more complex editing, begin with these values in `SenseNova Edit Guider`:
 
@@ -262,9 +274,11 @@ Try the following:
 
 ## System requirements
 
-Tested environment:
+Local and CI validation coverage:
 
-- ComfyUI 0.33.x
+- Local ComfyUI 0.33.x
+- CI: minimum supported ComfyUI 0.31 and current stable ComfyUI v0.34.0
+- Python 3.10, 3.12, 3.13, and 3.14
 - NVIDIA CUDA with BF16 support
 - RTX 5090 Laptop GPU, 24 GB VRAM
 - 64 GB system RAM
@@ -281,9 +295,20 @@ Tested environment:
 
 ## Model verification
 
-Final checkpoint:
+Current BF16 Final checkpoint (recommended):
 
 ```text
+File: SenseNova-U1.5-8B-MoT-BF16-T8.safetensors
+Size: 35,065,860,328 bytes
+SHA256: a32b117f40ad4575c6709b3ad6efb1c6b743ef1c1c3d75360f14090b997f1d29
+Official revision: 19bc874ef6ffc97fda9837b40fc1d1301806158a
+Tensors: 1116, all stored as BF16
+```
+
+Legacy mixed-precision Final checkpoint (still supported):
+
+```text
+File: SenseNova-U1.5-8B-MoT-T8.safetensors
 Size: 50,222,155,152 bytes
 SHA256: 2e5c4451969a8af9d7bcbf9d00a0fe463b15ed44149d8d79f31409e671587615
 Tensors: 1116
@@ -299,11 +324,11 @@ Tensors: 1116, all stored as BF16
 Source revision: 661834c5b5aee0f89958353511d6ac0ccaacb646
 ```
 
-The loader distinguishes Final from SFT and checks metadata, exact file size, all tensor names, shapes, and each variant's storage dtype. Invalid, incomplete, and unsupported checkpoints fail with a clear error instead of loading silently.
+The loader distinguishes current Final, legacy Final, and SFT files and checks metadata, exact file size, all tensor names, shapes, and each profile's storage dtype. Invalid, incomplete, and unsupported checkpoints fail with a clear error instead of loading silently.
 
 ### If you see `checkpoint key mismatch`
 
-Update this custom node to version `1.3.3` or newer, completely close ComfyUI, and start it again. Do not modify the loader, remove reported keys, or disable dynamic model loading to bypass verification. Those workarounds may allow the model to run with incorrect weights, causing blurred output, unusual colors, or poor prompt following.
+Update this custom node to version `1.3.5` or newer, completely close ComfyUI, and start it again. Do not modify the loader, remove reported keys, or disable dynamic model loading to bypass verification. Those workarounds may allow the model to run with incorrect weights, causing blurred output, unusual colors, or poor prompt following.
 
 If the error remains:
 
@@ -327,6 +352,7 @@ The conversion only adds the `diffusion_model.` prefix required by ComfyUI. All 
 Manual hash checks on Windows:
 
 ```powershell
+Get-FileHash .\SenseNova-U1.5-8B-MoT-BF16-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-SFT-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors -Algorithm SHA256

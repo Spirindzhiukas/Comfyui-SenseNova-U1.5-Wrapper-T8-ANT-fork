@@ -19,7 +19,7 @@
         {"name": "VAE", "type": "VAE", "links": [4]}
       ],
       "properties": {"Node name for S&R": "SenseNovaU15Loader"},
-      "widgets_values": ["SenseNova-U1.5-8B-MoT-T8.safetensors"]
+      "widgets_values": ["SenseNova-U1.5-8B-MoT-BF16-T8.safetensors"]
     },
     {
       "id": 2,
@@ -71,7 +71,7 @@
       "inputs": [],
       "outputs": [{"name": "LATENT", "type": "LATENT", "links": [8]}],
       "properties": {"Node name for S&R": "EmptySenseNovaLatentImage"},
-      "widgets_values": [1024, 1024, 1]
+      "widgets_values": [1024, 1024, 1, "Custom (use width / height)"]
     },
     {
       "id": 6,

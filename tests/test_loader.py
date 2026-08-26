@@ -52,16 +52,23 @@ class LoaderTests(unittest.TestCase):
     def test_bundled_tokenizer_assets_match_pinned_revision(self):
         loader._validate_tokenizer_assets()
 
-    def test_bundled_checkpoint_contract_is_complete_and_variant_specific(self):
+    def test_bundled_checkpoint_contract_is_complete_and_profile_specific(self):
         data = loader._checkpoint_contract_data()
         contract_path = Path(loader.__file__).with_name("checkpoint_contract.json")
         canonical_raw = contract_path.read_bytes().replace(b"\r\n", b"\n")
         self.assertEqual(hashlib.sha256(canonical_raw).hexdigest(), loader.CHECKPOINT_CONTRACT_SHA256)
         final = loader._checkpoint_contract("final")
+        final_legacy = loader._checkpoint_contract("final_legacy")
         sft = loader._checkpoint_contract("sft")
         self.assertEqual(len(final), 1116)
+        self.assertEqual(set(final), set(final_legacy))
         self.assertEqual(set(final), set(sft))
-        self.assertEqual(data["variants"]["final"]["file_size"], 50_222_155_152)
+        self.assertEqual(data["variants"]["final"]["file_size"], 35_065_860_328)
+        self.assertEqual(
+            data["variants"]["final"]["file_sha256"],
+            "a32b117f40ad4575c6709b3ad6efb1c6b743ef1c1c3d75360f14090b997f1d29",
+        )
+        self.assertEqual(data["variants"]["final_legacy"]["file_size"], 50_222_155_152)
         self.assertEqual(data["variants"]["sft"]["file_size"], 35_065_860_320)
         for prefix in (
             "fm_modules.timestep_embedder.mlp.",
@@ -70,7 +77,8 @@ class LoaderTests(unittest.TestCase):
             names = [name for name in final if name.startswith(prefix)]
             self.assertEqual(len(names), 4)
             for name in names:
-                self.assertEqual(final[name][1], "F32")
+                self.assertEqual(final[name][1], "BF16")
+                self.assertEqual(final_legacy[name][1], "F32")
                 self.assertEqual(sft[name][1], "BF16")
 
     def test_header_contract_rejects_key_shape_dtype_and_metadata_changes(self):
@@ -119,14 +127,30 @@ class LoaderTests(unittest.TestCase):
                     metadata={**metadata, "source_revision": loader.MODEL_REVISION},
                 ))
 
-    def test_final_mixed_precision_contract_is_unchanged(self):
+    def test_current_final_metadata_uses_all_bf16_storage(self):
+        name = "fm_modules.timestep_embedder.mlp.0.weight"
+        with patch.object(loader, "_checkpoint_contract", return_value={name: ((2,), "BF16")}):
+            self.assertEqual(
+                loader._validate_checkpoint_header(
+                    FakeCheckpoint(keys=(name,), dtype="BF16")
+                ),
+                ({name}, "final"),
+            )
+
+    def test_legacy_final_mixed_precision_contract_remains_supported(self):
         f32_in_final = "fm_modules.timestep_embedder.mlp.0.weight"
+        metadata = {
+            "format": loader.MODEL_FORMAT,
+            "source_repo": loader.MODEL_REPO,
+            "config_sha256": loader.CONFIG_SHA256,
+            "source_revision": loader.LEGACY_MODEL_REVISION,
+        }
         with patch.object(loader, "_checkpoint_contract", return_value={f32_in_final: ((2,), "F32")}):
             self.assertEqual(
                 loader._validate_checkpoint_header(
-                    FakeCheckpoint(keys=(f32_in_final,), dtype="F32")
+                    FakeCheckpoint(keys=(f32_in_final,), dtype="F32", metadata=metadata)
                 ),
-                ({f32_in_final}, "final"),
+                ({f32_in_final}, "final_legacy"),
             )
 
     def test_loader_rejects_non_safetensors_before_reading(self):

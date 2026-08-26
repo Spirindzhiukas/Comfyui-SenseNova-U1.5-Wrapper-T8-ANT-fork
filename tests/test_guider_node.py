@@ -22,7 +22,7 @@ package = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = package
 spec.loader.exec_module(package)
 
-from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaReferenceImageAdvanced, SenseNovaStructuredEditPrompt, SenseNovaU15EightStepLoRA, _prefix_cache_sample_wrapper
+from comfyui_sensenova_u15_t8_tests.nodes import EmptySenseNovaLatentImage, RESOLUTION_PRESETS, SenseNovaEditGuiderImpl, SenseNovaExtension, SenseNovaReferenceImage, SenseNovaReferenceImageAdvanced, SenseNovaStructuredEditPrompt, _prefix_cache_sample_wrapper
 
 
 class EditGuiderNodeTests(unittest.TestCase):
@@ -127,6 +127,25 @@ class EditGuiderNodeTests(unittest.TestCase):
         self.assertEqual(tuple(result[0]["samples"].shape), (3, 3, 96, 64))
         batch_input = EmptySenseNovaLatentImage.define_schema().inputs[2]
         self.assertEqual((batch_input.min, batch_input.max), (1, 16))
+
+    def test_empty_latent_offers_official_resolution_presets_without_changing_custom_default(self):
+        schema = EmptySenseNovaLatentImage.define_schema()
+        self.assertEqual([value.id for value in schema.inputs[:3]], ["width", "height", "batch_size"])
+        preset_input = schema.inputs[3]
+        self.assertEqual(preset_input.id, "resolution_preset")
+        self.assertEqual(list(preset_input.options), list(RESOLUTION_PRESETS))
+        for name, (width, height) in list(RESOLUTION_PRESETS.items())[1:]:
+            with self.subTest(name=name):
+                result = EmptySenseNovaLatentImage.execute(
+                    width=64,
+                    height=96,
+                    resolution_preset=name,
+                )
+                self.assertEqual(tuple(result[0]["samples"].shape), (1, 3, height, width))
+
+    def test_empty_latent_rejects_untrusted_resolution_preset(self):
+        with self.assertRaisesRegex(ValueError, "unsupported SenseNova resolution preset"):
+            EmptySenseNovaLatentImage.execute(width=64, height=64, resolution_preset="../../bad")
 
     def test_structured_prompt_node_outputs_plain_comfy_string(self):
         result = SenseNovaStructuredEditPrompt.execute(

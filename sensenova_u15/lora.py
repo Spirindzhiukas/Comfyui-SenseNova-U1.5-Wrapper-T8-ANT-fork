@@ -8,7 +8,7 @@ import comfy.lora_convert
 import comfy.utils
 import folder_paths
 
-from .loader import MODEL_REPO, MODEL_REVISION
+from .loader import FINAL_MODEL_REVISIONS, MODEL_REPO
 
 
 LORA_REPO = "sensenova/SenseNova-U1.5-8B-MoT-LoRAs"
@@ -32,7 +32,7 @@ def _validate_final_model(model):
     if (
         checkpoint.get("variant") != "final"
         or checkpoint.get("source_repo") != MODEL_REPO
-        or checkpoint.get("source_revision") != MODEL_REVISION
+        or checkpoint.get("source_revision") not in FINAL_MODEL_REVISIONS
     ):
         raise ValueError(
             "SenseNova U1.5 8-step LoRA requires its fixed official Final checkpoint; SFT uses 50 steps"

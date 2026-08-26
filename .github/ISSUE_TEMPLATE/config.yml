@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Installation and model documentation
+    url: https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8#readme
+    about: Check installation, model placement, verified hashes, and troubleshooting first.
+  - name: Comfy Registry package
+    url: https://registry.comfy.org/nodes/sensenova-u15-t8
+    about: Check the latest published node version.
