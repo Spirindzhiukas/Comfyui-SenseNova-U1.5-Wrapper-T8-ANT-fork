@@ -9,6 +9,7 @@
 - `tools/inject_sensenova_metadata.py` 新增 `--variant auto`（默认）：沿用文件自身的来源标签。社区 int8/int4 权重是由旧版混合精度 Final 转换而来（`1f6ec604`），必须保持 `final_legacy`，否则未量化张量的 dtype 校验会失败。
 - 量化加载现在总会安装 `QuantizedTensor` 转换保护（不再只在 bridge 模式下），因为无 BF16 的硬件会请求手动 dtype 转换。
 - 加载日志会打印检测到的量化格式、实测结论与最终所选算子；两份 README 增加"如何确认量化路径已生效"。
+- 已由本分支维护者于 2026-08-27 实测确认：两套 ConvRot 量化权重在文生图与参考图编辑工作流中均正常出图。
 
 ### English
 
@@ -17,6 +18,7 @@
 - `tools/inject_sensenova_metadata.py` gained `--variant auto` (the default), which keeps the file's own source tags. The community int8/int4 files were converted from the legacy mixed-precision Final (`1f6ec604`) and must stay `final_legacy`, otherwise the non-quantized tensors fail their dtype check.
 - The `QuantizedTensor` cast guards now install for every quantized load, not only bridge loads, since hardware without BF16 asks for a manual cast.
 - Load logs report the detected formats, the probe verdict and the selected ops; both READMEs document how to confirm the quantized path.
+- Verified by the fork maintainer on 2026-08-27: both ConvRot quantized checkpoints generate correctly in text-to-image and in the editing workflows.
 
 ## [1.4.1] - 2026-08-27
 

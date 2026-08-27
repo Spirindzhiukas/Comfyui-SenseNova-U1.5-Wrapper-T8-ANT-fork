@@ -338,12 +338,34 @@ on top of upstream **1.3.6** (newer than the 1.3.4 baseline this document assume
 | §2.1 tokenizer CRLF + `.gitattributes` | done — `_tokenizer_digest_kind` + warn/continue, fatal only for a missing asset; `.gitattributes` extended (and the files this fork touched are now LF) |
 | §2.2 English UI | done — `nodes.py`, `guidance.py`, `web/*.js`, plus the shipped `examples/*.json` labels and the multi-reference demo prompt; Chinese kept as comments; affected tests updated |
 | §2.3 RoPE 1.3.4 verification | verified, not re-applied — `model.py` has `rotate_half`, no `comfy.quant_ops`, 6D vision rotation; guarded by `tests/test_fork_rope_theta.py` |
-| §2.4 ConvRot quant port | done, additive — header contract derived from `checkpoint_contract.json`, `quant_bridge.py` + `qt_guards.py` ported, `model_config.get_model` hook, three converter tools ported under `tools/` |
+| §2.4 ConvRot quant port | done, additive — header contract derived from `checkpoint_contract.json`, `quant_bridge.py` + `qt_guards.py` ported, `model_config.get_model` hook, three converter tools ported under `tools/`. Needed two follow-ups (1.4.1/1.4.2) — see §9 |
 | §3 RoPE Lab deliberations | `docs/rope_lab_integration.md` added; the `transformer_options` theta hook from §9.3 is already implemented here |
 | §4.2 `memory.md` | added at the repo root with the protocols from §5 plus this fork's deviations |
 | §4.7 research docs | already in `docs/`; `ROPE_AND_EMBEDDING_NODES_PROPOSAL.md` does not exist in this checkout (noted in `memory.md` §3.4) |
 | §4.9 version + CHANGELOG | `1.4.0`, bilingual CHANGELOG entry |
 | §4.10 merge playbook | in `memory.md` §1–§5 |
+
+## 9. Closure — quant path verified on hardware (2026-08-27 19:50)
+
+Two defects survived the first pass and are now fixed in `1.4.1` / `1.4.2`:
+
+1. **`unet unexpected` / square-pattern output** — the pack validated quantized
+   headers but never set `model_config.quant_config`, so ComfyUI used plain Linear
+   ops and loaded the packed int8 payload as the weight (Milor123's own ops
+   masked this on their fork). Fixed by wiring core's quantization trigger
+   (`detect_layer_quantization` + `convert_old_quants` + core's manual-cast rule)
+   and by raising if a `comfy_quant` layer does not end up a `QuantizedTensor`.
+2. **Capability was guessed from a signature** — comfy-kitchen 0.2.28 and 0.2.31
+   both accept the `convrot` kwargs and only 0.2.31 applies them, so the ops
+   choice is now *measured* on the load device (`memory.md` §3 keeps that from
+   regressing into a version check).
+
+**Result, reported by the fork maintainer:** both ConvRot quantized checkpoints
+now work, in regular generation *and* in the editing workflows. §1–§4 of this
+contract are therefore closed; §3 (RoPE Lab) stays open on purpose — this pack's
+half of it (per-axis theta overrides through `transformer_options`, cache key,
+`docs/rope_lab_integration.md`) is implemented, the hook/MERD work lives in
+`ANT_NODES/RoPE_Lab`.
 
 Deviations from the letter of this contract (rationale in `memory.md` §3): no
 duplicated frozen tensor table (`checkpoint_contract.py` was *not* ported — the

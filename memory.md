@@ -140,6 +140,12 @@ note and returns.
 Quantized checkpoints are validated **header-only** in tests — a fake contract and
 fake slices, never a 17 GB file.
 
+Field status: verified working on 2026-08-27 (maintainer report) for the
+ConvRot quantized checkpoints in both text-to-image and reference-editing
+workflows, after `1.4.1` (quantization wiring) and `1.4.2` (measured capability
+probe). Keep the checks below as the regression tripwires — the failure mode is
+silent bad images, not a crash.
+
 A real quantized load must print these console lines (missing them is the
 checkerboard bug):
 
