@@ -94,10 +94,13 @@ class EditGuiderTests(unittest.TestCase):
             "保持 Image-1 的脸、姿势和背景。",
             "不要复制 Image-2 的人物。",
         )
-        self.assertIn("【主要修改】", actual)
-        self.assertIn("【参考图职责】", actual)
-        self.assertIn("【必须保持】", actual)
-        self.assertIn("只修改上面明确指定的内容", actual)
+        # English section titles in this fork; upstream uses
+        # 【主要修改】/【参考图职责】/【必须保持】/【执行要求】.
+        self.assertIn("[Main Edit]", actual)
+        self.assertIn("[Reference Image Roles]", actual)
+        self.assertIn("[Must Preserve]", actual)
+        self.assertIn("[Must Avoid]", actual)
+        self.assertIn("Only modify what is explicitly requested above", actual)
 
     def test_structured_edit_prompt_rejects_empty_instruction(self):
         with self.assertRaisesRegex(ValueError, "cannot be empty"):

@@ -21,6 +21,42 @@ HEAD_DIM = 128
 MERGED_PATCH_SIZE = 32
 VOCAB_SIZE = 151936
 
+# ---------------------------------------------------------------------------
+# SenseNova fork: per-axis RoPE bases, kept as one place of truth so an
+# external context-scaling suite (ANT RoPE_Lab: NTK/YaRN/SEGA style methods)
+# can rescale them for a single sampling pass through transformer_options
+# instead of monkey-patching this module. The defaults are the official
+# SenseNova-U1.5 values (llm theta 5e6 for the token/time axis, 1e4 for the
+# spatial axes and for the interleaved vision RoPE) and are used unchanged
+# whenever the options are absent, so bf16 and quantized inference are
+# bit-identical to upstream T8mars.
+# ---------------------------------------------------------------------------
+ROPE_THETA_TIME = 5000000.0
+ROPE_THETA_SPATIAL = 10000.0
+ROPE_THETA_VISION = 10000.0
+ROPE_THETA_OPTIONS = (
+    "sensenova_rope_theta_t",
+    "sensenova_rope_theta_hw",
+    "sensenova_rope_theta_vision",
+)
+
+
+def resolve_rope_thetas(transformer_options=None):
+    """Return the (time, spatial, vision) RoPE bases for this forward pass."""
+    options = transformer_options or {}
+    thetas = []
+    for key, default in zip(ROPE_THETA_OPTIONS, (ROPE_THETA_TIME, ROPE_THETA_SPATIAL, ROPE_THETA_VISION)):
+        value = options.get(key, default)
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"SenseNova RoPE theta '{key}' must be a number, got {value!r}")
+        if not math.isfinite(value) or value <= 0.0:
+            raise ValueError(f"SenseNova RoPE theta '{key}' must be positive and finite, got {value!r}")
+        thetas.append(value)
+    return tuple(thetas)
+
+
 
 def _generation_batch_size(total_batch, prefix_batch):
     if prefix_batch < 1 or total_batch < 1 or total_batch % prefix_batch != 0:
@@ -115,15 +151,16 @@ class VisionEmbeddings(nn.Module):
         self.dense_embedding = operations.Conv2d(1024, HIDDEN_SIZE, kernel_size=2, stride=2, device=device, dtype=dtype)
         self.gelu = nn.GELU()
 
-    def forward(self, image):
+    def forward(self, image, rope_theta=None):
+        theta = ROPE_THETA_VISION if rope_theta is None else float(rope_theta)
         patches = self.gelu(self.patch_embedding(image))
         batch, channels, height, width = patches.shape
         patches = patches.flatten(2).transpose(1, 2)
         indexes = torch.arange(height * width, device=patches.device)
         x_positions = indexes % width
         y_positions = indexes // width
-        first = _apply_interleaved_rope(patches[..., : channels // 2], x_positions, 10000.0)
-        second = _apply_interleaved_rope(patches[..., channels // 2 :], y_positions, 10000.0)
+        first = _apply_interleaved_rope(patches[..., : channels // 2], x_positions, theta)
+        second = _apply_interleaved_rope(patches[..., channels // 2 :], y_positions, theta)
         patches = torch.cat((first, second), dim=-1).to(image.dtype)
         patches = patches.transpose(1, 2).reshape(batch, channels, height, width)
         patches = self.dense_embedding(patches)
@@ -135,8 +172,8 @@ class VisionModel(nn.Module):
         super().__init__()
         self.embeddings = VisionEmbeddings(device=device, dtype=dtype, operations=operations)
 
-    def forward(self, image):
-        return self.embeddings(image)
+    def forward(self, image, rope_theta=None):
+        return self.embeddings(image, rope_theta=rope_theta)
 
 
 class MLP(nn.Module):
@@ -171,7 +208,7 @@ class Attention(nn.Module):
         self.k_norm_hw = operations.RMSNorm(HEAD_DIM // 2, eps=1e-6, device=device, dtype=dtype)
         self.k_norm_hw_mot_gen = operations.RMSNorm(HEAD_DIM // 2, eps=1e-6, device=device, dtype=dtype)
 
-    def _project(self, hidden_states, indexes, generation):
+    def _project(self, hidden_states, indexes, generation, transformer_options=None):
         batch, length, _ = hidden_states.shape
         if generation:
             query = self.q_proj_mot_gen(hidden_states).view(batch, length, NUM_HEADS, HEAD_DIM)
@@ -196,15 +233,16 @@ class Attention(nn.Module):
 
         query_h, query_w = query_hw.chunk(2, dim=-1)
         key_h, key_w = key_hw.chunk(2, dim=-1)
-        query_t, key_t = _apply_llm_rope(query_t, key_t, indexes[0], 5000000.0)
-        query_h, key_h = _apply_llm_rope(query_h, key_h, indexes[1], 10000.0)
-        query_w, key_w = _apply_llm_rope(query_w, key_w, indexes[2], 10000.0)
+        rope_theta_time, rope_theta_spatial, _ = resolve_rope_thetas(transformer_options)
+        query_t, key_t = _apply_llm_rope(query_t, key_t, indexes[0], rope_theta_time)
+        query_h, key_h = _apply_llm_rope(query_h, key_h, indexes[1], rope_theta_spatial)
+        query_w, key_w = _apply_llm_rope(query_w, key_w, indexes[2], rope_theta_spatial)
         query = torch.cat((query_t, query_h, query_w), dim=-1)
         key = torch.cat((key_t, key_h, key_w), dim=-1)
         return query, key, value
 
     def forward_prefix(self, hidden_states, indexes, attention_mask, transformer_options):
-        query, key, value = self._project(hidden_states, indexes, False)
+        query, key, value = self._project(hidden_states, indexes, False, transformer_options)
         output = optimized_attention(
             query,
             key,
@@ -218,7 +256,7 @@ class Attention(nn.Module):
         return self.o_proj(output), key, value
 
     def forward_generation(self, hidden_states, indexes, prefix_key, prefix_value, transformer_options):
-        query, key, value = self._project(hidden_states, indexes, True)
+        query, key, value = self._project(hidden_states, indexes, True, transformer_options)
         key = torch.cat((prefix_key, key), dim=2)
         value = torch.cat((prefix_value, value), dim=2)
         output = optimized_attention(
@@ -333,6 +371,10 @@ class SenseNovaU15(nn.Module):
         if text_input_ids is None:
             raise ValueError("SenseNova-U1.5 requires text conditioning")
 
+        # >>> SenseNova fork: per-axis RoPE bases for this sampling pass <<<
+        rope_theta_time, rope_theta_spatial, rope_theta_vision = resolve_rope_thetas(transformer_options)
+        # <<< SenseNova fork <<<
+
         original_height, original_width = x.shape[-2:]
         x = pad_to_patch_size(x, (MERGED_PATCH_SIZE, MERGED_PATCH_SIZE))
         batch, _, height, width = x.shape
@@ -351,7 +393,7 @@ class SenseNovaU15(nn.Module):
         token_width = width // MERGED_PATCH_SIZE
         image_length = token_height * token_width
 
-        image = self.fm_modules["vision_model_mot_gen"](x)
+        image = self.fm_modules["vision_model_mot_gen"](x, rope_theta=rope_theta_vision)
         expanded_timesteps = timesteps[:, None].expand(batch, image_length).reshape(-1)
         time_embedding = self.fm_modules["timestep_embedder"](expanded_timesteps, image.dtype)
         noise_scale = resolution_noise_scale(height, width) / 16.0
@@ -375,6 +417,11 @@ class SenseNovaU15(nn.Module):
                 x.dtype,
                 x.device.type,
                 x.device.index,
+                # A RoPE rescaling invalidates the cached prefix KV, so the
+                # active bases are part of the key: dynamic (per-timestep)
+                # methods then simply miss the cache instead of reusing
+                # rotations computed with another scale.
+                (rope_theta_time, rope_theta_spatial, rope_theta_vision),
             )
             cached_prefix = cache.get(cache_key)
 
@@ -385,7 +432,7 @@ class SenseNovaU15(nn.Module):
                 reference_embeds = []
                 for reference in reference_images:
                     reference = pad_to_patch_size(reference, (MERGED_PATCH_SIZE, MERGED_PATCH_SIZE))
-                    reference_embeds.append(self.vision_model(reference))
+                    reference_embeds.append(self.vision_model(reference, rope_theta=rope_theta_vision))
                 selected = text_input_ids == 151669
                 prefix = prefix.clone()
                 prefix[selected] = torch.cat(reference_embeds, dim=1).reshape(-1, HIDDEN_SIZE)

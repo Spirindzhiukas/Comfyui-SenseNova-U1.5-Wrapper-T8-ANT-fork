@@ -109,17 +109,25 @@ class ExampleWorkflowTests(unittest.TestCase):
         self.assertEqual(links[sampler["inputs"][0]["link"]][1:3], [3, 0])
 
     def test_frontend_edit_and_multi_reference_contracts(self):
+        # Slot labels and the demo edit prompt are English in this fork; the
+        # frontend extension rewrites the labels at runtime either way.
         edit = self.load_example("edit_workflow.json")
         edit_reference = next(node for node in edit["nodes"] if node["type"] == "SenseNovaReferenceImage")
         self.assertEqual([value["name"] for value in edit_reference["inputs"]], ["positive", "negative", "Image-1"])
-        self.assertEqual(edit_reference["inputs"][-1]["localized_name"], "参考图 1 (Image-1)")
-        self.assertEqual(edit_reference["inputs"][-1]["label"], "参考图 1 (Image-1)")
+        self.assertEqual(edit_reference["inputs"][-1]["localized_name"], "Reference Image 1 (Image-1)")
+        self.assertEqual(edit_reference["inputs"][-1]["label"], "Reference Image 1 (Image-1)")
 
         multi = self.load_example("multi_reference_edit_workflow.json")
         multi_reference = next(node for node in multi["nodes"] if node["type"] == "SenseNovaReferenceImage")
         self.assertEqual([value["name"] for value in multi_reference["inputs"][-2:]], ["Image-1", "Image-2"])
-        self.assertEqual([value["localized_name"] for value in multi_reference["inputs"][-2:]], ["参考图 1 (Image-1)", "参考图 2 (Image-2)"])
-        self.assertEqual([value["label"] for value in multi_reference["inputs"][-2:]], ["参考图 1 (Image-1)", "参考图 2 (Image-2)"])
+        self.assertEqual(
+            [value["localized_name"] for value in multi_reference["inputs"][-2:]],
+            ["Reference Image 1 (Image-1)", "Reference Image 2 (Image-2)"],
+        )
+        self.assertEqual(
+            [value["label"] for value in multi_reference["inputs"][-2:]],
+            ["Reference Image 1 (Image-1)", "Reference Image 2 (Image-2)"],
+        )
         guider = next(node for node in multi["nodes"] if node["type"] == "SenseNovaEditGuider")
         scheduler = next(node for node in multi["nodes"] if node["type"] == "BasicScheduler")
         self.assertEqual(guider["widgets_values"], [4, 1, "global", 0, 1])

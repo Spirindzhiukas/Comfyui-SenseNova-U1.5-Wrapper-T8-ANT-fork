@@ -2,6 +2,56 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
+## [1.4.2] - 2026-08-27
+
+- INT8 ConvRot 的算子选择改为**实测**：加载时在目标设备上用小规模确定性权重调用 `comfy_kitchen.int8_linear`，比较"旋转激活"与"不旋转"两种参考结果，据此决定使用 ComfyUI 原生 mixed-precision 还是本节点的 ConvRot 实现；不再依赖版本号或函数签名（0.2.28 与 0.2.31 都接收 `convrot` 参数，但只有后者真正执行）。可用 `SENSENOVA_NO_CONVROT_PROBE=1` 跳过实测。
+- 若量化权重最终不是 `QuantizedTensor`，加载直接报错（此前只会安静地产出方格图），并提示改用 `SENSENOVA_FORCE_BRIDGE=1`。
+- `tools/inject_sensenova_metadata.py` 新增 `--variant auto`（默认）：沿用文件自身的来源标签。社区 int8/int4 权重是由旧版混合精度 Final 转换而来（`1f6ec604`），必须保持 `final_legacy`，否则未量化张量的 dtype 校验会失败。
+- 量化加载现在总会安装 `QuantizedTensor` 转换保护（不再只在 bridge 模式下），因为无 BF16 的硬件会请求手动 dtype 转换。
+- 加载日志会打印检测到的量化格式、实测结论与最终所选算子；两份 README 增加"如何确认量化路径已生效"。
+- 已由本分支维护者于 2026-08-27 实测确认：两套 ConvRot 量化权重在文生图与参考图编辑工作流中均正常出图。
+
+### English
+
+- The INT8 ConvRot ops decision is now **measured**: at load time the pack calls `comfy_kitchen.int8_linear` on a small deterministic weight and compares the rotated against the unrotated reference before deciding between ComfyUI's native mixed-precision ops and this node's ConvRot forwards. Version numbers and signatures are not trustworthy here — 0.2.28 and 0.2.31 both *accept* `convrot`, only 0.2.31 applies it. `SENSENOVA_NO_CONVROT_PROBE=1` skips the measurement (always bridge).
+- Loading now fails loudly if a quantized layer did not end up as a `QuantizedTensor`, instead of silently rendering a checkerboard, and the message points at `SENSENOVA_FORCE_BRIDGE=1`.
+- `tools/inject_sensenova_metadata.py` gained `--variant auto` (the default), which keeps the file's own source tags. The community int8/int4 files were converted from the legacy mixed-precision Final (`1f6ec604`) and must stay `final_legacy`, otherwise the non-quantized tensors fail their dtype check.
+- The `QuantizedTensor` cast guards now install for every quantized load, not only bridge loads, since hardware without BF16 asks for a manual cast.
+- Load logs report the detected formats, the probe verdict and the selected ops; both READMEs document how to confirm the quantized path.
+- Verified by the fork maintainer on 2026-08-27: both ConvRot quantized checkpoints generate correctly in text-to-image and in the editing workflows.
+
+## [1.4.1] - 2026-08-27
+
+- 修复量化权重实际未被解包的问题：加载 ConvRot 检查点时现在会像 `comfy.sd.load_diffusion_model` 一样设置 `model_config.quant_config`（并调用 `comfy.utils.convert_old_quants`），否则 ComfyUI 会选择普通 Linear，把 `int8` 打包数据直接当权重使用——推理照常运行，但画面是规则方格噪声，同时控制台出现大量 `unet unexpected: [... weight_scale ... comfy_quant]`。
+- 量化模型现在按核心规则忽略存储精度来选择 `manual cast`，并在控制台打印检测到的量化格式与所选算子（原生 mixed-precision 或本分支 ConvRot bridge）。
+- 新增加载后校验：若带 `comfy_quant` 的层最终不是 `QuantizedTensor`，直接报错并提示更新 ComfyUI 或使用 `SENSENOVA_FORCE_BRIDGE=1`，不再静默产出坏图。
+
+### English
+
+- Fixed quantized checkpoints silently loading unpacked. Loading a ConvRot file now sets `model_config.quant_config` (and runs `comfy.utils.convert_old_quants`) exactly like `comfy.sd.load_diffusion_model`; without it ComfyUI picks plain `Linear` ops, treats the packed int8 payload as the weight, and inference happily produces a regular checkerboard while the console fills with `unet unexpected: [... weight_scale ... comfy_quant]`.
+- The manual-cast decision now follows core's rule of ignoring the stored weight dtype for quantized checkpoints, and the loader logs the detected formats plus which ops were selected (native mixed-precision vs this fork's ConvRot bridge).
+- New post-load invariant: if a layer that carries a `comfy_quant` sidecar did not end up as a `QuantizedTensor`, loading fails with guidance (update ComfyUI, or `SENSENOVA_FORCE_BRIDGE=1`) instead of producing broken images.
+
+## [1.4.0] - 2026-08-27（ANT 分支，基线 = 上游 T8mars 1.3.6）
+
+- Windows 换行符兼容：tokenizer 资产摘要现在同时比对原始字节和 CRLF→LF 规范化结果，只有两者都不匹配时打印警告而不再阻止加载；`.gitattributes` 把 `sensenova_u15/tokenizer/*` 以及 `*.py/*.json/*.js/*.txt` 固定为 LF。
+- 全英文界面：参考图插槽名、`SenseNova Structured Edit Prompt` 默认值、前端扩展标签、内置工作流示例都改为英文；上游中文原文保留为注释，方便继续合并 T8mars 更新。
+- 新增可选 ConvRot 量化支持：`int8_tensorwise`、`convrot_w4a4`、`asym_w4a8_int8`（含按层混合格式与 hybrid 阶梯产物）通过每层 `*.comfy_quant` 侧车键被识别，并按派生自 `checkpoint_contract.json` 的 contract 严格校验；官方 bf16 检查点仍走完全不变的上游 JSON 分支，文件大小校验只对 bf16 生效。
+- `sensenova_u15/quant_bridge.py`（移植自 Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320）只在当前 ComfyUI/comfy-kitchen 不会自行完成 convrot 激活旋转时启用；`sensenova_u15/qt_guards.py` 也只在真正加载量化权重时安装，因此 bf16 用户的行为和性能完全不变。可用 `SENSENOVA_NO_QUANT`、`SENSENOVA_NO_BRIDGE`、`SENSENOVA_FORCE_BRIDGE`、`SENSENOVA_NO_QT_GUARDS` 覆盖。
+- 保留上游 1.3.4 的纯 PyTorch RoPE 修复（CUDA 13 / Blackwell 安全），并把 t / hw / vision 三条 RoPE 基频改为可从 `transformer_options` 读取，prefix cache key 也包含基频，为 ANT RoPE_Lab 的动态缩放留出接口。
+- 主 README 改为英文：原 `README_EN.md` 内容移到 `README.md`，中文文档改名 `README_CN.md`，仓库与 ComfyUI-Registry 首页默认显示英文。
+- 新增量化脚本 `tools/convert_sensenova_int4_convrot.py`、`tools/inject_sensenova_metadata.py`、`tools/make_hybrid_ladder.py`，维护契约 `memory.md` 与设计文档 `docs/rope_lab_integration.md`，以及量化检查点、CRLF、RoPE 基频相关测试。
+
+### English
+
+- CRLF-safe tokenizer check: the asset digest now compares both the raw bytes and the LF-normalised bytes, warns instead of aborting on a mismatch, and `.gitattributes` pins the packaged text files to LF, so a Windows clone with `core.autocrlf=true` loads again.
+- English UI: reference-image slot labels, the structured edit prompt defaults, the frontend extension label and the shipped examples are English; the upstream Chinese wording stays next to them as a comment so future T8mars merges stay reviewable.
+- Optional ConvRot quantization: `int8_tensorwise`, `convrot_w4a4` and `asym_w4a8_int8` checkpoints (including per-layer mixes and the hybrid ladder output) are detected through their per-layer `comfy_quant` sidecars and validated against a contract derived from the bundled `checkpoint_contract.json`. Official bf16 files keep the untouched upstream path, including the file-size check.
+- The ported `quant_bridge.py` installs itself only when the running ComfyUI/comfy-kitchen cannot rotate convrot activations itself, and `qt_guards.py` installs only for quantized loads, so bf16 behaviour and speed are unchanged. Override with `SENSENOVA_NO_QUANT`, `SENSENOVA_NO_BRIDGE`, `SENSENOVA_FORCE_BRIDGE` or `SENSENOVA_NO_QT_GUARDS`.
+- The upstream 1.3.4 pure-PyTorch RoPE fix is preserved, and the three RoPE bases (time, spatial, vision) can now be overridden per sampling pass through `transformer_options`; the prefix cache key includes them so a rescaled run never reuses stale KV.
+- New quant tooling in `tools/`, a maintenance contract in `memory.md`, `docs/rope_lab_integration.md`, plus tests for quantized headers, CRLF assets and the RoPE bases.
+- **English is now the default README**: `README.md` holds the English documentation (was `README_EN.md`) and the Chinese translation moved to `README_CN.md`, so the repository and ComfyUI-Registry front pages open in English.
+
 ## [1.3.6] - 2026-08-27
 
 - 添加官方 ComfyUI-Manager 使用的 `node_list.json`，让 V3 扩展入口注册的全部 8 个节点能被“安装缺失节点”功能可靠识别。

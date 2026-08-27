@@ -16,7 +16,9 @@ class MetadataTests(unittest.TestCase):
     def test_registry_metadata(self):
         metadata = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["name"], "sensenova-u15-t8")
-        self.assertEqual(metadata["project"]["version"], "1.3.6")
+        # 1.4.0 = upstream T8mars 1.3.6 plus this fork's ConvRot, CRLF and
+        # English-UI changes; see CHANGELOG.md.
+        self.assertEqual(metadata["project"]["version"], "1.4.2")
         self.assertEqual(metadata["tool"]["comfy"]["PublisherId"], "t8star")
         self.assertEqual(metadata["tool"]["comfy"]["DisplayName"], "SenseNova U1.5 (T8)")
         self.assertTrue(metadata["project"]["urls"]["Model Download"].startswith("https://huggingface.co/t8star/"))
@@ -43,6 +45,30 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(set(node_list), schema_ids)
         self.assertTrue(all(isinstance(description, str) and description for description in node_list.values()))
 
+    def test_fork_modules_are_packaged(self):
+        """ConvRot support and the maintenance contract must ship with the node."""
+        for name in ("sensenova_u15/quant_bridge.py", "sensenova_u15/qt_guards.py"):
+            with self.subTest(module=name):
+                self.assertTrue((PACKAGE_ROOT / name).is_file())
+        for name in (
+            "tools/convert_sensenova_int4_convrot.py",
+            "tools/inject_sensenova_metadata.py",
+            "tools/make_hybrid_ladder.py",
+        ):
+            with self.subTest(tool=name):
+                self.assertTrue((PACKAGE_ROOT / name).is_file())
+        # the quant tooling stays out of the Registry wheel
+        patterns = set((PACKAGE_ROOT / ".comfyignore").read_text(encoding="utf-8").splitlines())
+        self.assertIn("tools/", patterns)
+        self.assertIn("tests/", patterns)
+        for name in ("memory.md", "docs/rope_lab_integration.md"):
+            with self.subTest(doc=name):
+                self.assertTrue((PACKAGE_ROOT / name).is_file())
+        init = (PACKAGE_ROOT / "__init__.py").read_text(encoding="utf-8")
+        # the bf16 entry point must not import the quant stack eagerly
+        self.assertNotIn("qt_guards", init)
+        self.assertIn("from .nodes import comfy_entrypoint", init)
+
     def test_all_examples_are_valid_json(self):
         examples = sorted((PACKAGE_ROOT / "examples").glob("*.json"))
         self.assertGreaterEqual(len(examples), 3)
@@ -67,8 +93,17 @@ class MetadataTests(unittest.TestCase):
         for field in ("id: environment", "id: model", "id: workflow", "id: logs"):
             self.assertIn(field, bug_form)
 
-    def test_readme_local_links_and_visuals_exist(self):
-        for readme_name in ("README.md", "README_EN.md"):
+    def test_english_is_the_default_readme(self):
+        # Upstream ships the Chinese README at README.md and English at
+        # README_EN.md; this fork makes English the default and keeps the
+        # Chinese translation next to it.
+        english = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
+        chinese = (PACKAGE_ROOT / "README_CN.md").read_text(encoding="utf-8")
+        self.assertTrue(english.startswith("# SenseNova U1.5 for ComfyUI"))
+        self.assertIn("[简体中文](README_CN.md)", english)
+        self.assertIn("[English](README.md)", chinese)
+        self.assertFalse((PACKAGE_ROOT / "README_EN.md").exists())
+        for readme_name in ("README.md", "README_CN.md"):
             readme = (PACKAGE_ROOT / readme_name).read_text(encoding="utf-8")
             local_links = [value for value in re.findall(r"\]\(([^)]+)\)", readme) if "://" not in value]
             for value in local_links:

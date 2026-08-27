@@ -16,7 +16,8 @@ function referenceNumber(name) {
 }
 
 function referenceLabel(number) {
-    return `参考图 ${number} (Image-${number})`;
+    // Original (upstream T8mars): `参考图 ${number} (Image-${number})`
+    return `Reference Image ${number} (Image-${number})`;
 }
 
 function setInputLabel(input, label) {

@@ -40,7 +40,7 @@ class SenseNovaU15Loader(io.ComfyNode):
             node_id="SenseNovaU15Loader",
             display_name="SenseNova U1.5 Loader (Final / SFT)",
             category="loaders/SenseNova",
-            description="Load a verified single-file SenseNova-U1.5 Final or SFT checkpoint. Preview is rejected.",
+            description="Load a verified single-file SenseNova-U1.5 Final or SFT checkpoint, including ConvRot int8 / W4A4 / W4A8 conversions of them. Preview is rejected.",
             inputs=[
                 io.Combo.Input(
                     id="model_name",
@@ -167,7 +167,8 @@ def _reference_image_inputs(max_images):
     return [
         io.Image.Input(
             id=f"Image-{index}",
-            display_name=f"参考图 {index} (Image-{index})",
+            # Original (upstream T8mars): 参考图 {index} (Image-{index})
+            display_name=f"Reference Image {index} (Image-{index})",
             optional=index > 1,
             tooltip=(
                 "Main/source image. In a garment edit, connect the person here."
@@ -272,19 +273,22 @@ class SenseNovaStructuredEditPrompt(io.ComfyNode):
                 io.String.Input(
                     id="image_roles",
                     multiline=True,
-                    default="参考图作为主画面和待编辑对象。多图时请明确写 Image-1、Image-2 各自提供什么。",
+                    # Original (upstream T8mars): 参考图作为主画面和待编辑对象。多图时请明确写 Image-1、Image-2 各自提供什么。
+                    default="Image-1 is the main image to edit. When using multiple references, state clearly what each of Image-1, Image-2 provides.",
                     tooltip="Assign a single clear role to each reference image. Image-1 is the first connected socket.",
                 ),
                 io.String.Input(
                     id="preserve",
                     multiline=True,
-                    default="保持主体身份、姿势、构图、背景、光线、镜头和画幅比例不变。",
+                    # Original (upstream T8mars): 保持主体身份、姿势、构图、背景、光线、镜头和画幅比例不变。
+                    default="Keep subject identity, pose, composition, background, lighting, camera angle, and aspect ratio unchanged.",
                     tooltip="List everything that must remain consistent with the main image.",
                 ),
                 io.String.Input(
                     id="avoid",
                     multiline=True,
-                    default="不要增加无关主体，不要改变未指定区域，不要生成水印或乱码文字。",
+                    # Original (upstream T8mars): 不要增加无关主体，不要改变未指定区域，不要生成水印或乱码文字。
+                    default="Do not add unrelated subjects, do not alter unspecified areas, do not generate watermarks or garbled text.",
                     tooltip="List unwanted transfers, extra subjects, text, or other failure modes.",
                 ),
             ],

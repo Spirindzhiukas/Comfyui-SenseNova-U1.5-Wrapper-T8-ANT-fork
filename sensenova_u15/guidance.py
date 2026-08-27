@@ -87,18 +87,32 @@ def rescale_denoised_guidance(guided, positive, latent, sigma, mode="none"):
 
 
 def build_structured_edit_prompt(instruction, image_roles="", preserve="", avoid=""):
+    """Assemble the four-section SenseNova editing instruction.
+
+    Section titles are English in this fork. The official model was trained
+    with the Chinese headers below and follows both, so keep them here as the
+    reference wording when comparing generations:
+
+        【主要修改】/【参考图职责】/【必须保持】/【禁止出现】/【执行要求】
+    """
     instruction = instruction.strip()
     if not instruction:
         raise ValueError("SenseNova edit instruction cannot be empty")
 
-    sections = [f"【主要修改】\n{instruction}"]
+    # Original (upstream T8mars): f"【主要修改】\n{instruction}"
+    sections = [f"[Main Edit]\n{instruction}"]
     for title, value in (
-        ("参考图职责", image_roles),
-        ("必须保持", preserve),
-        ("禁止出现", avoid),
+        # Original: 参考图职责 / 必须保持 / 禁止出现
+        ("Reference Image Roles", image_roles),
+        ("Must Preserve", preserve),
+        ("Must Avoid", avoid),
     ):
         value = value.strip()
         if value:
-            sections.append(f"【{title}】\n{value}")
-    sections.append("【执行要求】\n只修改上面明确指定的内容；未要求修改的区域保持原图一致。")
+            sections.append(f"[{title}]\n{value}")
+    # Original: 【执行要求】只修改上面明确指定的内容；未要求修改的区域保持原图一致。
+    sections.append(
+        "[Requirements]\nOnly modify what is explicitly requested above; "
+        "keep all other areas consistent with the original."
+    )
     return "\n\n".join(sections)
