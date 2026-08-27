@@ -93,8 +93,17 @@ class MetadataTests(unittest.TestCase):
         for field in ("id: environment", "id: model", "id: workflow", "id: logs"):
             self.assertIn(field, bug_form)
 
-    def test_readme_local_links_and_visuals_exist(self):
-        for readme_name in ("README.md", "README_EN.md"):
+    def test_english_is_the_default_readme(self):
+        # Upstream ships the Chinese README at README.md and English at
+        # README_EN.md; this fork makes English the default and keeps the
+        # Chinese translation next to it.
+        english = (PACKAGE_ROOT / "README.md").read_text(encoding="utf-8")
+        chinese = (PACKAGE_ROOT / "README_CN.md").read_text(encoding="utf-8")
+        self.assertTrue(english.startswith("# SenseNova U1.5 for ComfyUI"))
+        self.assertIn("[简体中文](README_CN.md)", english)
+        self.assertIn("[English](README.md)", chinese)
+        self.assertFalse((PACKAGE_ROOT / "README_EN.md").exists())
+        for readme_name in ("README.md", "README_CN.md"):
             readme = (PACKAGE_ROOT / readme_name).read_text(encoding="utf-8")
             local_links = [value for value in re.findall(r"\]\(([^)]+)\)", readme) if "://" not in value]
             for value in local_links:

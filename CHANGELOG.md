@@ -9,6 +9,7 @@
 - 新增可选 ConvRot 量化支持：`int8_tensorwise`、`convrot_w4a4`、`asym_w4a8_int8`（含按层混合格式与 hybrid 阶梯产物）通过每层 `*.comfy_quant` 侧车键被识别，并按派生自 `checkpoint_contract.json` 的 contract 严格校验；官方 bf16 检查点仍走完全不变的上游 JSON 分支，文件大小校验只对 bf16 生效。
 - `sensenova_u15/quant_bridge.py`（移植自 Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320）只在当前 ComfyUI/comfy-kitchen 不会自行完成 convrot 激活旋转时启用；`sensenova_u15/qt_guards.py` 也只在真正加载量化权重时安装，因此 bf16 用户的行为和性能完全不变。可用 `SENSENOVA_NO_QUANT`、`SENSENOVA_NO_BRIDGE`、`SENSENOVA_FORCE_BRIDGE`、`SENSENOVA_NO_QT_GUARDS` 覆盖。
 - 保留上游 1.3.4 的纯 PyTorch RoPE 修复（CUDA 13 / Blackwell 安全），并把 t / hw / vision 三条 RoPE 基频改为可从 `transformer_options` 读取，prefix cache key 也包含基频，为 ANT RoPE_Lab 的动态缩放留出接口。
+- 主 README 改为英文：原 `README_EN.md` 内容移到 `README.md`，中文文档改名 `README_CN.md`，仓库与 ComfyUI-Registry 首页默认显示英文。
 - 新增量化脚本 `tools/convert_sensenova_int4_convrot.py`、`tools/inject_sensenova_metadata.py`、`tools/make_hybrid_ladder.py`，维护契约 `memory.md` 与设计文档 `docs/rope_lab_integration.md`，以及量化检查点、CRLF、RoPE 基频相关测试。
 
 ### English
@@ -19,6 +20,7 @@
 - The ported `quant_bridge.py` installs itself only when the running ComfyUI/comfy-kitchen cannot rotate convrot activations itself, and `qt_guards.py` installs only for quantized loads, so bf16 behaviour and speed are unchanged. Override with `SENSENOVA_NO_QUANT`, `SENSENOVA_NO_BRIDGE`, `SENSENOVA_FORCE_BRIDGE` or `SENSENOVA_NO_QT_GUARDS`.
 - The upstream 1.3.4 pure-PyTorch RoPE fix is preserved, and the three RoPE bases (time, spatial, vision) can now be overridden per sampling pass through `transformer_options`; the prefix cache key includes them so a rescaled run never reuses stale KV.
 - New quant tooling in `tools/`, a maintenance contract in `memory.md`, `docs/rope_lab_integration.md`, plus tests for quantized headers, CRLF assets and the RoPE bases.
+- **English is now the default README**: `README.md` holds the English documentation (was `README_EN.md`) and the Chinese translation moved to `README_CN.md`, so the repository and ComfyUI-Registry front pages open in English.
 
 ## [1.3.6] - 2026-08-27
 

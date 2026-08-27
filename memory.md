@@ -31,6 +31,12 @@ Lab research. It must stay mergeable with upstream.
   `examples/edit_workflow.json`, `examples/multi_reference_edit_workflow.json`,
   `examples/sft_edit_workflow.json`. `examples/t2i_8step_workflow.json` keeps its
   Chinese prompt **on purpose** (it demos rendering Chinese text in the image).
+- README layout differs from upstream on purpose: upstream keeps the Chinese
+  document at `README.md` and English at `README_EN.md`; **this fork makes
+  English the default** (`README.md`) and moved the Chinese to `README_CN.md`.
+  When upstream edits its `README_EN.md`, apply those changes here to `README.md`
+  and translate them into `README_CN.md`; when it edits its `README.md`, apply
+  them to `README_CN.md` only.
 
 ## 2. Evaluation Against Our Own Changes
 
@@ -70,7 +76,7 @@ Before merging any upstream commit, diff it against these invariants:
     its own GPU kernels;
   - `qt_guards` installs only for quantized loads (Milor123 installed it at
     package import; we do not, so bf16 streaming keeps its hot path clean).
-- Env switches (all documented in `README_EN.md`):
+- Env switches (all documented in `README.md`, the English default):
   `SENSENOVA_NO_QUANT=1` (reject quant files), `SENSENOVA_NO_BRIDGE=1`
   (never install custom ops), `SENSENOVA_FORCE_BRIDGE=1` (always install, to
   reproduce the reference numbers of the original ConvRot fork),
