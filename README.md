@@ -342,7 +342,31 @@ python tools/make_hybrid_ladder.py \
     --rungs hybw4a8-L18-41
 ```
 
-Then point `SenseNova U1.5 Loader (Final / SFT)` at the tagged file. The loader
+Then point `SenseNova U1.5 Loader (Final / SFT)` at the tagged file — the same
+loader node as for bf16. There is no separate "ConvRot loader": the per-layer
+`comfy_quant` sidecars are what select the quantized path, so a quantized and a
+bf16 file can never be loaded through the wrong code path.
+
+### Confirming the quantized path
+
+ComfyUI's console must show these lines while the model loads:
+
+```text
+Found quantization metadata version 1
+Using mixed precision operations
+[SenseNova-U1.5] quantized checkpoint detected (int8_tensorwise); loading with mixed-precision quantization ops.
+[sensenova-u15] quantized weights: ComfyUI native mixed-precision operations (...)
+```
+
+`Found quantization metadata version 1` and `Using mixed precision operations` come
+from ComfyUI core and are the important ones: without them the packed weights are
+never un-packed, and the symptom is a regular square-pattern / checkerboard image
+instead of an error, together with a long `unet unexpected: [... weight_scale,
+... comfy_quant]` warning. This node refuses to load in that state and raises. If
+your ComfyUI's `comfy-kitchen` is older than 0.2.31 (its INT8 kernel accepts but
+ignores the convrot flags), set `SENSENOVA_FORCE_BRIDGE=1` to use this pack's own
+ConvRot forwards.
+ The loader
 validates the derived contract (packed shapes, sidecar dtypes, per-layer formats)
 before a single weight is read, and reports the active formats if something does
 not line up. The 8-step LoRA keeps working on quantized Final checkpoints.

@@ -294,7 +294,24 @@ python tools/convert_sensenova_int4_convrot.py -i <官方.safetensors> -o <量�
 python tools/inject_sensenova_metadata.py -i <量化.safetensors> -o <量化-tagged.safetensors> --variant final
 ```
 
-然后用 `SenseNova U1.5 Loader (Final / SFT)` 直接加载 tagged 文件即可。相关环境变量：
+然后用 `SenseNova U1.5 Loader (Final / SFT)` 直接加载 tagged 文件即可——与 BF16 使用同一个
+加载节点，不需要额外的“量化 Loader”：是否走量化分支完全由每层的 `comfy_quant` 侧车键决定，
+因此量化文件与官方 BF16 文件不可能走错代码路径。
+
+加载量化权重时控制台应出现：
+
+```text
+Found quantization metadata version 1
+Using mixed precision operations
+[SenseNova-U1.5] quantized checkpoint detected (int8_tensorwise); loading with mixed-precision quantization ops.
+```
+
+其中前两行来自 ComfyUI 核心，最为关键：缺少它们时打包权重不会被解包，现象是画面出现规则的
+方格/棋盘噪声而不报错，并伴随大段 `unet unexpected: [... weight_scale ... comfy_quant]` 警告。
+本节点在该情况下会直接报错。若所用 comfy-kitchen 早于 0.2.31（其 INT8 kernel 接收但忽略
+convrot 参数），可设置 `SENSENOVA_FORCE_BRIDGE=1` 改用本节点自带的 ConvRot 实现。
+
+相关环境变量：
 `SENSENOVA_NO_QUANT`、`SENSENOVA_NO_BRIDGE`、`SENSENOVA_FORCE_BRIDGE`、
 `SENSENOVA_NO_QT_GUARDS`（仅在加载量化权重时生效）。默认情况下，只有当前
 ComfyUI/comfy-kitchen 自身不支持 convrot 激活旋转时才会安装本分支的 Linear 实现。

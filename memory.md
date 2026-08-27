@@ -45,6 +45,17 @@ Before merging any upstream commit, diff it against these invariants:
 - `sensenova_u15/loader.py::_validate_tokenizer_assets` — the CRLF-tolerant
   digest check (`_tokenizer_digest_kind`) must survive. If upstream changes
   tokenizer validation, re-apply tolerance; the "asset missing" error stays fatal.
+- `sensenova_u15/loader.py::load_sensenova_model` — the **quantization wiring**
+  must stay: `detect_quant_config(state_dict)` → `model_config.quant_config`, and
+  the manual-cast call that passes `None` as the weight dtype for quantized files.
+  ComfyUI only consumes `*.comfy_quant` / `*.weight_scale` under
+  `comfy.ops.mixed_precision_ops`, which `pick_operations` selects from
+  `quant_config`. Losing it is silent and catastrophic: the packed int8 payload
+  becomes the weight and the image is a regular checkerboard. Keep
+  `_validate_quantized_weights_loaded()` (post-load `QuantizedTensor` check) as the
+  tripwire, and keep `comfy.utils.convert_old_quants` for legacy layouts.
+  Provenance: reported by the fork owner on 2026-08-27 with Milor123's
+  `SenseNova-U1.5-8B-MoT-T8-int8-convrot-tagged.safetensors`.
 - `sensenova_u15/model.py` — the pure-PyTorch split-half RoPE (1.3.4 fix) must
   stay. `grep -n "quant_ops\|apply_rope_split_half" sensenova_u15/model.py` must
   stay empty; if upstream re-introduces the comfy-kitchen kernel, re-apply the
@@ -74,8 +85,9 @@ Before merging any upstream commit, diff it against these invariants:
   - `quant_bridge` is installed only when the running ComfyUI/comfy-kitchen does
     not handle convrot itself (`core_supports_convrot`), so a modern core keeps
     its own GPU kernels;
-  - `qt_guards` installs only for quantized loads (Milor123 installed it at
-    package import; we do not, so bf16 streaming keeps its hot path clean).
+  - `qt_guards` installs for any quantized load (Milor123 installed it at package
+    import; we do it from `get_model`, so bf16 streaming keeps its hot path clean
+    and 4-bit weights stay intact on hardware that requests a manual cast).
 - Env switches (all documented in `README.md`, the English default):
   `SENSENOVA_NO_QUANT=1` (reject quant files), `SENSENOVA_NO_BRIDGE=1`
   (never install custom ops), `SENSENOVA_FORCE_BRIDGE=1` (always install, to
@@ -138,6 +150,20 @@ note and returns.
 Quantized checkpoints are validated **header-only** in tests — a fake contract and
 fake slices, never a 17 GB file.
 
+A real quantized load must print these console lines (missing them is the
+checkerboard bug):
+
+```text
+Found quantization metadata version 1        <- ComfyUI core, from quant_config
+Using mixed precision operations             <- ComfyUI core, pick_operations
+[SenseNova-U1.5] quantized checkpoint detected (...); loading with mixed-precision quantization ops.
+[sensenova-u15] quantized weights: ComfyUI native mixed-precision operations | SenseNova ConvRot operations
+```
+
+`comfy-kitchen` note: its INT8 kernel only honours `convrot` from 0.2.31 (0.2.28
+accepts and ignores the kwargs). `core_supports_convrot()` probes the signature and
+falls back to our bridge, which reproduces Milor123's validated behaviour.
+
 ## 5. Versioning
 
 - Upstream version wins the first three components; this fork bumps the minor on
@@ -182,6 +208,7 @@ fake slices, never a 17 GB file.
 | English prompt sections | `sensenova_u15/guidance.py::build_structured_edit_prompt` | this fork; Chinese kept in the docstring |
 | Pure-PyTorch split-half RoPE + 6D vision rotation | `sensenova_u15/model.py::_apply_llm_rope`, `_apply_interleaved_rope` | upstream `T8mars` commit `73657001` (1.3.4); verified, not re-applied |
 | Quant header contract | `sensenova_u15/loader.py` (`QUANT_*`, `_read_quant_formats`, `_quant_checkpoint_contract`, `_validate_quant_header`) | adapted from Milor123 `sensenova_u15/loader.py` + `checkpoint_contract.py`, rebuilt on T8's JSON contract |
+| Quant ops wiring (`quant_config`, post-load invariant) | `sensenova_u15/loader.py::detect_quant_config`, `_validate_quantized_weights_loaded` | this fork, 2026-08-27, after the int8 checkerboard report; mirrors `comfy.sd.load_diffusion_model` + `comfy.model_detection` |
 | ConvRot Linear forwards | `sensenova_u15/quant_bridge.py` | Milor123 @ `7e1e320` (`quant_bridge.py`), plus our `quant_bridge_needed` / `core_supports_convrot` gate |
 | Quantized-tensor cast guards | `sensenova_u15/qt_guards.py` | Milor123 @ `7e1e320` (`qt_guards.py`), relocated + defensive lookups |
 | ops hook for quantized loads | `sensenova_u15/model_config.py::get_model` | Milor123's `model_config.py` hook, made capability-aware |

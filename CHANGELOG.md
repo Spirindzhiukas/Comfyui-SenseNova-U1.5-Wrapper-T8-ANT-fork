@@ -2,6 +2,18 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
+## [1.4.1] - 2026-08-27
+
+- 修复量化权重实际未被解包的问题：加载 ConvRot 检查点时现在会像 `comfy.sd.load_diffusion_model` 一样设置 `model_config.quant_config`（并调用 `comfy.utils.convert_old_quants`），否则 ComfyUI 会选择普通 Linear，把 `int8` 打包数据直接当权重使用——推理照常运行，但画面是规则方格噪声，同时控制台出现大量 `unet unexpected: [... weight_scale ... comfy_quant]`。
+- 量化模型现在按核心规则忽略存储精度来选择 `manual cast`，并在控制台打印检测到的量化格式与所选算子（原生 mixed-precision 或本分支 ConvRot bridge）。
+- 新增加载后校验：若带 `comfy_quant` 的层最终不是 `QuantizedTensor`，直接报错并提示更新 ComfyUI 或使用 `SENSENOVA_FORCE_BRIDGE=1`，不再静默产出坏图。
+
+### English
+
+- Fixed quantized checkpoints silently loading unpacked. Loading a ConvRot file now sets `model_config.quant_config` (and runs `comfy.utils.convert_old_quants`) exactly like `comfy.sd.load_diffusion_model`; without it ComfyUI picks plain `Linear` ops, treats the packed int8 payload as the weight, and inference happily produces a regular checkerboard while the console fills with `unet unexpected: [... weight_scale ... comfy_quant]`.
+- The manual-cast decision now follows core's rule of ignoring the stored weight dtype for quantized checkpoints, and the loader logs the detected formats plus which ops were selected (native mixed-precision vs this fork's ConvRot bridge).
+- New post-load invariant: if a layer that carries a `comfy_quant` sidecar did not end up as a `QuantizedTensor`, loading fails with guidance (update ComfyUI, or `SENSENOVA_FORCE_BRIDGE=1`) instead of producing broken images.
+
 ## [1.4.0] - 2026-08-27（ANT 分支，基线 = 上游 T8mars 1.3.6）
 
 - Windows 换行符兼容：tokenizer 资产摘要现在同时比对原始字节和 CRLF→LF 规范化结果，只有两者都不匹配时打印警告而不再阻止加载；`.gitattributes` 把 `sensenova_u15/tokenizer/*` 以及 `*.py/*.json/*.js/*.txt` 固定为 LF。

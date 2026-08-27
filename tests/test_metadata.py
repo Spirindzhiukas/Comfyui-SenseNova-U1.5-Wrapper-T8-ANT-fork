@@ -18,7 +18,7 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(metadata["project"]["name"], "sensenova-u15-t8")
         # 1.4.0 = upstream T8mars 1.3.6 plus this fork's ConvRot, CRLF and
         # English-UI changes; see CHANGELOG.md.
-        self.assertEqual(metadata["project"]["version"], "1.4.0")
+        self.assertEqual(metadata["project"]["version"], "1.4.1")
         self.assertEqual(metadata["tool"]["comfy"]["PublisherId"], "t8star")
         self.assertEqual(metadata["tool"]["comfy"]["DisplayName"], "SenseNova U1.5 (T8)")
         self.assertTrue(metadata["project"]["urls"]["Model Download"].startswith("https://huggingface.co/t8star/"))

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 from functools import lru_cache
 from pathlib import Path
@@ -181,6 +182,28 @@ def _is_quant_candidate(name, shape):
     )
 
 
+def detect_quant_config(state_dict):
+    """ComfyUI's trigger for the quantization-aware operations.
+
+    ``comfy.model_detection`` sets ``model_config.quant_config`` from the
+    per-layer ``comfy_quant`` keys and ``comfy.ops.pick_operations`` then builds
+    ``mixed_precision_ops``, which is the only op set whose ``Linear`` consumes
+    those sidecars. Without it the packed int8/int4 payload would be handed to a
+    plain Linear as if it were a normal weight: the model still runs, but every
+    projection is garbage.
+    """
+    detector = getattr(comfy.utils, "detect_layer_quantization", None)
+    config = None
+    if detector is not None:
+        try:
+            config = detector(state_dict, "")
+        except Exception:
+            config = None
+    if config is None and any(key.endswith(QUANT_METADATA_SUFFIX) for key in state_dict):
+        config = {"mixed_ops": True}  # the same value core returns
+    return config
+
+
 def _read_quant_formats(checkpoint):
     """Per-layer format map from every `comfy_quant` payload; empty means bf16."""
     formats = {}
@@ -297,6 +320,61 @@ def _validate_quant_header(checkpoint, profile, quant_formats, model_path=None):
     return expected_keys, profile
 
 
+def _quantized_weight_names(model):
+    """Layer stems whose Linear weight is a real QuantizedTensor."""
+    try:
+        from comfy.quant_ops import QuantizedTensor
+    except Exception:  # pragma: no cover - ComfyUI without quant support
+        return None, None
+    quantized = []
+    plain = []
+    for name, parameter in model.diffusion_model.named_parameters():
+        if not name.endswith(".weight"):
+            continue
+        stem = name[: -len(".weight")]
+        tensor = parameter
+        if isinstance(tensor, QuantizedTensor):
+            quantized.append(stem)
+        elif getattr(tensor, "dtype", None) in (torch.int8, torch.uint8):
+            # packed payload that never reached a quantization kernel
+            plain.append(stem)
+    return set(quantized), plain
+
+
+def _validate_quantized_weights_loaded(model, quant_formats, model_path):
+    """Refuse to serve a model whose packed weights were not un-packed.
+
+    Quantized sidecars are only consumed by ComfyUI's mixed-precision ops. If a
+    future ComfyUI change stops selecting them, the raw int8/int4 bytes would
+    otherwise be used as ordinary weights: inference "works" and produces a
+    regular checkerboard of garbage, which is the worst possible failure mode.
+    """
+    expected = {stem for stem, fmt in quant_formats.items() if fmt in QUANT_FORMATS}
+    if not expected:
+        return
+    quantized, plain = _quantized_weight_names(model)
+    if quantized is None:  # no QuantizedTensor type available at all
+        raise ValueError(
+            "SenseNova-U1.5 quantized checkpoint needs ComfyUI's quantization ops "
+            f"(comfy-kitchen), which are unavailable here. Load the official bf16 file or "
+            f"install comfy-kitchen; model={Path(model_path).resolve()}"
+        )
+    missing = sorted(expected - quantized)
+    if missing:
+        hint = ""
+        if plain:
+            hint = (
+                f" {len(plain)} layer(s) still hold raw packed tensors "
+                f"(first: {plain[0]}), i.e. the sidecars were never consumed."
+            )
+        raise ValueError(
+            "SenseNova-U1.5 quantized checkpoint loaded without quantization kernels: "
+            f"{len(missing)} of {len(expected)} quantized layers are plain tensors "
+            f"(first: {missing[0]}).{hint} Update ComfyUI, or set SENSENOVA_FORCE_BRIDGE=1 "
+            f"to use this node's ConvRot operations; model={Path(model_path).resolve()}"
+        )
+
+
 def _validate_checkpoint_header(checkpoint, model_path=None, quant_formats=None):
     profile = _validate_metadata(checkpoint.metadata() or {})
     # >>> SenseNova fork: quantized checkpoints branch off here, the bf16 path
@@ -401,15 +479,35 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     loaded_profile = _validate_metadata(metadata)
     if loaded_profile != profile:
         raise ValueError("SenseNova-U1.5 checkpoint metadata changed while loading")
+    if quant_formats:
+        # >>> SenseNova fork: keep legacy quant layouts on the same path core
+        # uses for every quantized checkpoint (comfy.sd.load_diffusion_model). <<<
+        converter = getattr(comfy.utils, "convert_old_quants", None)
+        if converter is not None:
+            state_dict, metadata = converter(state_dict, "", metadata=metadata)
     if set(state_dict) != expected_keys:
         raise ValueError("SenseNova-U1.5 loaded state dict does not match the validated header")
 
     load_device = comfy.model_management.get_torch_device()
     model_config = SenseNovaModelConfig({})
+    # >>> SenseNova fork: quantized weights only load correctly under ComfyUI's
+    # mixed-precision ops, which core selects from model_config.quant_config. <<<
+    quant_config = detect_quant_config(state_dict)
+    if quant_config:
+        model_config.quant_config = quant_config
+    # core ignores the stored weight dtype for quantized checkpoints so the
+    # compute dtype, not the int8/int4 payload, drives the manual cast choice.
     manual_cast_dtype = comfy.model_management.unet_manual_cast(
-        dtype, load_device, model_config.supported_inference_dtypes
+        None if quant_config else dtype, load_device, model_config.supported_inference_dtypes
     )
     model_config.set_inference_dtype(dtype, manual_cast_dtype, device=load_device)
+    if quant_config:
+        formats = ", ".join(sorted({str(value) for value in quant_formats.values()}))
+        logging.info(
+            f"[SenseNova-U1.5] quantized checkpoint detected ({formats}); "
+            "loading with mixed-precision quantization ops."
+        )
+    # <<< SenseNova fork <<<
 
     parameters = comfy.utils.calculate_parameters(state_dict)
     initial_load_device = comfy.model_management.unet_inital_load_device(parameters, dtype)
@@ -423,6 +521,10 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     model.load_model_weights(state_dict, assign=patcher.is_dynamic())
     if state_dict:
         raise ValueError(f"SenseNova-U1.5 unused checkpoint keys after load: {sorted(state_dict)[:5]}")
+    if quant_config:
+        # >>> SenseNova fork: a quantized load that silently fell back to plain
+        # weights must fail here, not produce a checkerboard. <<<
+        _validate_quantized_weights_loaded(model, quant_formats, model_path)
     patcher.cached_patcher_init = (load_sensenova_model, (model_path, dtype))
     attachment = {
         "variant": CHECKPOINT_PROFILES[profile]["variant"],

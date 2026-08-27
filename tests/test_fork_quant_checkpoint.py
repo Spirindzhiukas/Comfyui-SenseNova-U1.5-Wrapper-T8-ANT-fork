@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -349,6 +350,57 @@ class QuantBridgeGateTests(unittest.TestCase):
 
         with mock.patch.dict(os.environ, {"SENSENOVA_NO_QT_GUARDS": "1"}):
             self.assertFalse(qt_guards.install_quant_guards())
+
+
+class QuantOpsWiringTests(unittest.TestCase):
+    """A quantized checkpoint must reach ComfyUI's quantization-aware ops.
+
+    Without ``model_config.quant_config`` core selects plain Linear ops, which
+    leaves the ``.comfy_quant`` / ``.weight_scale`` sidecars unconsumed and uses
+    the raw packed int8 payload as the weight. Inference still runs and produces
+    a regular square-pattern artefact, so this is guarded explicitly.
+    """
+
+    def test_detect_quant_config_matches_core(self):
+        self.assertIsNone(loader.detect_quant_config({"a.weight": torch.zeros(2, 2)}))
+        quantized = {f"{Q_STEM}.comfy_quant": torch.zeros(4, dtype=torch.uint8)}
+        self.assertEqual(loader.detect_quant_config(quantized), {"mixed_ops": True})
+
+    def test_loader_sets_quant_config_before_building_the_model(self):
+        source = (PACKAGE_ROOT / "sensenova_u15" / "loader.py").read_text(encoding="utf-8")
+        self.assertIn("quant_config = detect_quant_config(state_dict)", source)
+        self.assertIn("model_config.quant_config = quant_config", source)
+        # core ignores the stored weight dtype for quantized checkpoints
+        self.assertIn("None if quant_config else dtype, load_device", source)
+        self.assertLess(
+            source.index("model_config.quant_config = quant_config"),
+            source.index("model = model_config.get_model(state_dict"),
+        )
+
+    def test_model_config_selects_the_bridge_for_quantized_weights(self):
+        payload = json.dumps({"format": "int8_tensorwise", "convrot": True}).encode("utf-8")
+        state_dict = {f"{Q_STEM}.comfy_quant": torch.tensor(list(payload), dtype=torch.uint8)}
+        self.assertEqual(quant_bridge.state_dict_quant_formats(state_dict), {Q_STEM: "int8_tensorwise"})
+
+    def test_unpacked_weights_are_refused_after_loading(self):
+        model = types.SimpleNamespace(
+            diffusion_model=types.SimpleNamespace(
+                named_parameters=lambda: [(f"{Q_STEM}.weight", torch.zeros(4, 4, dtype=torch.int8))]
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "without quantization kernels"):
+            loader._validate_quantized_weights_loaded(model, {Q_STEM: "int8_tensorwise"}, "quant.safetensors")
+
+    def test_quantized_params_pass_the_check(self):
+        try:
+            from comfy.quant_ops import QuantizedTensor
+        except Exception:  # pragma: no cover - ComfyUI without quant support
+            self.skipTest("this ComfyUI has no QuantizedTensor")
+        real = QuantizedTensor(torch.zeros(4, 4, dtype=torch.int8), "TensorWiseINT8Layout")
+        model = types.SimpleNamespace(
+            diffusion_model=types.SimpleNamespace(named_parameters=lambda: [(f"{Q_STEM}.weight", real)])
+        )
+        loader._validate_quantized_weights_loaded(model, {Q_STEM: "int8_tensorwise"}, "quant.safetensors")
 
 
 if __name__ == "__main__":
