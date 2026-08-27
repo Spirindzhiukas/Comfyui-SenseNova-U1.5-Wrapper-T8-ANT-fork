@@ -6,6 +6,22 @@
 
 [版本更新记录](CHANGELOG.md) · [GitHub Releases](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/releases)
 
+## 本分支说明
+
+本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` **1.3.6** 的维护分支，在上游
+功能之上增加（详见 [`memory.md`](memory.md) 与
+[`README_EN.md`](README_EN.md)）：
+
+- 界面全面英文化：节点名、插槽名、结构化编辑提示默认值、前端扩展与内置示例工作流；
+  上游中文原文保留为注释，方便继续合并 T8mars 更新。
+- Windows 换行符兼容：tokenizer 校验同时比对 CRLF→LF 规范化摘要，`core.autocrlf=true`
+  的克隆不再报 `tokenizer asset digest mismatch`。
+- ConvRot 量化权重（可选）：INT8（约 17.6 GB）、ConvRot W4A4、非对称 W4A8
+  （约 13.8 GB）以及按层混合，官方 BF16 加载路径保持不变。
+- RoPE 三条基频可由 `transformer_options` 覆盖，便于 ANT RoPE_Lab 做上下文长度/分辨率
+  缩放实验（`docs/rope_lab_integration.md`）。
+- `tools/` 下附带量化转换脚本。
+
 这是 SenseNova-U1.5 的 ComfyUI 原生节点。模型、采样器、调度器、显存卸载和工作流都走 ComfyUI 管道，支持：
 
 - 文生图
@@ -267,6 +283,22 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 - 复杂编辑或画面过冲时把 `cfg_norm` 改成 `global`
 - 提示词加入 `natural colors`、`restrained color grading`
 
+## ConvRot 量化权重（本分支新增）
+
+只在使用带 `comfy_quant` 侧车键的量化文件时才会启用；官方 BF16/SFT 文件走与上游
+完全一致的严格校验（含文件大小）。转换步骤（需在装有 `comfy-kitchen` 的 ComfyUI
+环境里执行）：
+
+```bash
+python tools/convert_sensenova_int4_convrot.py -i <官方.safetensors> -o <量化.safetensors> --mode w4a8
+python tools/inject_sensenova_metadata.py -i <量化.safetensors> -o <量化-tagged.safetensors> --variant final
+```
+
+然后用 `SenseNova U1.5 Loader (Final / SFT)` 直接加载 tagged 文件即可。相关环境变量：
+`SENSENOVA_NO_QUANT`、`SENSENOVA_NO_BRIDGE`、`SENSENOVA_FORCE_BRIDGE`、
+`SENSENOVA_NO_QT_GUARDS`（仅在加载量化权重时生效）。默认情况下，只有当前
+ComfyUI/comfy-kitchen 自身不支持 convrot 激活旋转时才会安装本分支的 Linear 实现。
+
 ## 运行要求
 
 当前实机和 CI 验证范围：
@@ -284,7 +316,7 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 
 - 只验证了 NVIDIA CUDA + BF16
 - 不支持运行时自动下载模型
-- 量化、bbox/marker 和 think mode 暂未开放
+- 可在本分支加载量化后的 ConvRot 权重；但在 ComfyUI 内直接量化、bbox/标记点控制与 think 模式仍未开放。
 - 复杂主体替换、多区域或多约束编辑可能出现内容漂移
 - FP16、ROCm、MPS、DirectML、XPU、NPU 暂未验证
 

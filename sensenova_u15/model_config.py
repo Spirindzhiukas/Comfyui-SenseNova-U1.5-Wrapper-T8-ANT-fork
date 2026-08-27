@@ -1,3 +1,4 @@
+import logging
 import math
 
 import torch
@@ -100,6 +101,26 @@ class SenseNovaModelConfig(comfy.supported_models_base.BASE):
     optimizations = {"fp8": False}
 
     def get_model(self, state_dict, prefix="", device=None):
+        # >>> SenseNova fork: optional ConvRot quantized checkpoint support.
+        # Plain bf16 / fp32 checkpoints have no `*.comfy_quant` key, so they
+        # keep using the stock operations and this block is never entered.
+        # See sensenova_u15/quant_bridge.py for the auto-detection rules.
+        try:
+            from .quant_bridge import quant_bridge_needed
+
+            use_bridge = quant_bridge_needed(state_dict)
+        except ImportError:  # comfy.ops / comfy.quant_ops too old
+            use_bridge = False
+            logging.warning("[sensenova-u15] quant bridge unavailable; using stock ComfyUI ops.")
+        if use_bridge:
+            from .quant_bridge import make_sensenova_quant_ops
+            from .qt_guards import install_quant_guards
+
+            # Packed weights must survive `cast_to_device` and dtype casts
+            # untouched, so install the guards before any weight is cast.
+            install_quant_guards()
+            self.custom_operations = make_sensenova_quant_ops()
+        # <<< SenseNova fork <<<
         return SenseNovaBaseModel(self, device=device)
 
     def process_unet_state_dict(self, state_dict):

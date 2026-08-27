@@ -31,7 +31,7 @@
     },
     {
       "id": 6, "type": "SenseNovaReferenceImage", "pos": [870, 190], "size": [330, 130], "flags": {}, "order": 5, "mode": 0,
-      "inputs": [{"name": "positive", "type": "CONDITIONING", "link": 5}, {"name": "negative", "type": "CONDITIONING", "link": 6}, {"label": "参考图 1 (Image-1)", "localized_name": "参考图 1 (Image-1)", "name": "Image-1", "type": "IMAGE", "link": 7}],
+      "inputs": [{"name": "positive", "type": "CONDITIONING", "link": 5}, {"name": "negative", "type": "CONDITIONING", "link": 6}, {"label": "Reference Image 1 (Image-1)", "localized_name": "Reference Image 1 (Image-1)", "name": "Image-1", "type": "IMAGE", "link": 7}],
       "outputs": [{"name": "positive", "type": "CONDITIONING", "links": [8]}, {"name": "image_condition", "type": "CONDITIONING", "links": [9]}],
       "properties": {"Node name for S&R": "SenseNovaReferenceImage"}, "widgets_values": []
     },

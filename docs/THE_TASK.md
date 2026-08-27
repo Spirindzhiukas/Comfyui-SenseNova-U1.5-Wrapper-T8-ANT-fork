@@ -323,4 +323,31 @@ If T8 has moved beyond 1.3.4 and reintroduced kitchen kernel, re-apply fix with 
 
 ---
 
-*End of THE_TASK.md — this is your contract for next session when new fork repo is connected.*
+---
+
+*End of THE_TASK.md — this is your contract for the next session when the new fork repo is connected.*
+
+## 8. Status — executed in the ANT fork session (2026-08-27)
+
+The contract above was carried out in `Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork`
+on top of upstream **1.3.6** (newer than the 1.3.4 baseline this document assumed).
+
+| Task item | Result |
+| --- | --- |
+| §1 analyze current state | done — upstream is 1.3.6, RoPE fix already present, quant absent, Chinese UI present, `.gitattributes` only had the contract line |
+| §2.1 tokenizer CRLF + `.gitattributes` | done — `_tokenizer_digest_kind` + warn/continue, fatal only for a missing asset; `.gitattributes` extended (and the files this fork touched are now LF) |
+| §2.2 English UI | done — `nodes.py`, `guidance.py`, `web/*.js`, plus the shipped `examples/*.json` labels and the multi-reference demo prompt; Chinese kept as comments; affected tests updated |
+| §2.3 RoPE 1.3.4 verification | verified, not re-applied — `model.py` has `rotate_half`, no `comfy.quant_ops`, 6D vision rotation; guarded by `tests/test_fork_rope_theta.py` |
+| §2.4 ConvRot quant port | done, additive — header contract derived from `checkpoint_contract.json`, `quant_bridge.py` + `qt_guards.py` ported, `model_config.get_model` hook, three converter tools ported under `tools/` |
+| §3 RoPE Lab deliberations | `docs/rope_lab_integration.md` added; the `transformer_options` theta hook from §9.3 is already implemented here |
+| §4.2 `memory.md` | added at the repo root with the protocols from §5 plus this fork's deviations |
+| §4.7 research docs | already in `docs/`; `ROPE_AND_EMBEDDING_NODES_PROPOSAL.md` does not exist in this checkout (noted in `memory.md` §3.4) |
+| §4.9 version + CHANGELOG | `1.4.0`, bilingual CHANGELOG entry |
+| §4.10 merge playbook | in `memory.md` §1–§5 |
+
+Deviations from the letter of this contract (rationale in `memory.md` §3): no
+duplicated frozen tensor table (`checkpoint_contract.py` was *not* ported — the
+quant contract is derived from the JSON one), `qt_guards.py` moved into
+`sensenova_u15/` and installed lazily instead of at package import, and the ops
+bridge is capability-gated because current ComfyUI/comfy-kitchen already handle
+convrot themselves.

@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -40,6 +41,9 @@ CHECKPOINT_PROFILES = {
         "source_revision": SFT_MODEL_REVISION,
     },
 }
+# Bundled tokenizer directory. Module level so tests can point it at a copy
+# with foreign line endings.
+TOKENIZER_DIR = Path(__file__).resolve().parent / "tokenizer"
 TOKENIZER_ASSET_SHA256 = {
     "config.json": CONFIG_SHA256,
     "tokenizer_config.json": "7433b95cec590c7d687259e81bca1bc4630ff39773dbf7f30f7df27a99748077",
@@ -123,8 +127,184 @@ def _checkpoint_contract(profile):
     return contract
 
 
-def _validate_checkpoint_header(checkpoint, model_path=None):
+# ---------------------------------------------------------------------------
+# SenseNova fork addendum: optional ConvRot quantized checkpoint support.
+#
+# Everything below this marker only runs for checkpoints that carry per-layer
+# `*.comfy_quant` sidecars (int8-ConvRot, ConvRot W4A4 and W4A8 conversions of
+# an official Final/SFT file, see tools/convert_sensenova_int4_convrot.py).
+# The official bf16 files have no such key, so they keep taking the strict
+# upstream JSON contract untouched, which keeps future `git merge` of T8mars
+# changes on this file small and local.
+# ---------------------------------------------------------------------------
+QUANT_METADATA_SUFFIX = ".comfy_quant"
+QUANT_FORMATS = ("int8_tensorwise", "convrot_w4a4", "asym_w4a8_int8")
+# Rank-2 linear weights the converter quantizes. Norms, embeddings and the LM
+# head always stay in the floating dtype of the source checkpoint.
+QUANT_EXCLUDED_SUBSTRINGS = ("norm", "embed_tokens", "lm_head")
+# comfy-kitchen writes the W4A8 group scale as native fp8; files exported by
+# older tooling keep it as raw bytes, which ComfyUI core views back to fp8.
+QUANT_GROUP_SCALE_DTYPES = ("F8_E4M3", "U8")
+# Sidecars a quantized layer must carry (required) or may carry (optional),
+# as (shape kind, storage dtype) relative to the layer stem. The W4A8 channel
+# scale and codebook depend on the conversion recipe, so they are only
+# validated when the file actually has them.
+QUANT_REQUIRED_SIDECARS = {
+    "int8_tensorwise": {".weight_scale": ("rows_x_1", "F32")},
+    "convrot_w4a4": {".weight_scale": ("rows", "F32")},
+    "asym_w4a8_int8": {".weight_s_rel": ("rows_x_groups", QUANT_GROUP_SCALE_DTYPES)},
+}
+QUANT_OPTIONAL_SIDECARS = {
+    "int8_tensorwise": {},
+    "convrot_w4a4": {},
+    "asym_w4a8_int8": {
+        ".weight_s_channel": ("rows", "F32"),
+        ".weight_codebook": ((16,), "F32"),
+    },
+}
+# Packed weight shapes: 4-bit formats store two nibbles per int8 element.
+QUANT_PACKED_WEIGHT = {"convrot_w4a4": 2, "asym_w4a8_int8": 2}
+QUANT_GROUP_SIZE = 16
+
+
+def _quant_support_enabled():
+    """Allow users to switch the quantized-checkpoint path off completely."""
+    return not os.environ.get("SENSENOVA_NO_QUANT")
+
+
+def _is_quant_candidate(name, shape):
+    """Rank-2 linear weights that the converter's SenseNova policy quantizes."""
+    return (
+        len(shape) == 2
+        and name.endswith(".weight")
+        and not any(token in name for token in QUANT_EXCLUDED_SUBSTRINGS)
+    )
+
+
+def _read_quant_formats(checkpoint):
+    """Per-layer format map from every `comfy_quant` payload; empty means bf16."""
+    formats = {}
+    for key in checkpoint.keys():
+        if not key.endswith(QUANT_METADATA_SUFFIX):
+            continue
+        try:
+            payload = checkpoint.get_tensor(key)
+            config = json.loads(bytes(payload.numpy()).decode("utf-8"))
+            formats[key[: -len(QUANT_METADATA_SUFFIX)]] = config.get("format")
+        except Exception:
+            # A checkpoint we cannot parse here is handed back to the strict
+            # upstream contract, which reports the key mismatch with the full
+            # model and loader path.
+            return {}
+    return formats
+
+
+def _quant_sidecar_shape(kind, rows, columns):
+    if kind == "rows":
+        return (rows,)
+    if kind == "rows_x_1":
+        return (rows, 1)
+    if kind == "rows_x_groups":
+        return (rows, columns // QUANT_GROUP_SIZE)
+    if isinstance(kind, tuple):  # a literal shape from the table above
+        return kind
+    raise ValueError(f"unknown SenseNova quantized sidecar shape: {kind!r}")
+
+
+def _quant_checkpoint_contract(profile, quant_formats):
+    """Extend the bundled bf16 contract with the quantized per-layer layout.
+
+    Returns ``(contract, optional_keys)``. The base key set, shapes and
+    floating dtypes stay the ones pinned in `checkpoint_contract.json`, so a
+    new upstream contract revision automatically carries the quant path too.
+    Only the layers that actually carry a `comfy_quant` payload are rewritten,
+    which also accepts partially quantized or hand-mixed checkpoints, and
+    recipe-dependent sidecars land in ``optional_keys``: validated when the
+    file has them, not required.
+    """
+    unsupported = sorted({fmt for fmt in quant_formats.values() if fmt not in QUANT_FORMATS})
+    if unsupported:
+        raise ValueError(
+            f"SenseNova-U1.5 checkpoint uses unsupported quantization format(s) "
+            f"{unsupported} (supported: {', '.join(QUANT_FORMATS)})"
+        )
+    quantized = {stem for stem, quant_format in quant_formats.items() if quant_format in QUANT_FORMATS}
+    contract = {}
+    optional_keys = set()
+    for name, (shape, dtype) in _checkpoint_contract(profile).items():
+        stem = name[: -len(".weight")]
+        if not _is_quant_candidate(name, shape) or stem not in quantized:
+            contract[name] = (shape, dtype)
+            continue
+        quant_format = quant_formats[stem]
+        rows, columns = shape[0], shape[1]
+        packed = QUANT_PACKED_WEIGHT.get(quant_format)
+        contract[name] = ((rows, columns // packed) if packed else tuple(shape), "I8")
+        for suffix, (kind, sidecar_dtype) in QUANT_REQUIRED_SIDECARS[quant_format].items():
+            contract[stem + suffix] = (_quant_sidecar_shape(kind, rows, columns), sidecar_dtype)
+        for suffix, (kind, sidecar_dtype) in QUANT_OPTIONAL_SIDECARS[quant_format].items():
+            contract[stem + suffix] = (_quant_sidecar_shape(kind, rows, columns), sidecar_dtype)
+            optional_keys.add(stem + suffix)
+        # The JSON payload length varies per layer, so only its dtype is pinned.
+        contract[stem + QUANT_METADATA_SUFFIX] = (None, "U8")
+    return contract, optional_keys
+
+
+def _validate_quant_header(checkpoint, profile, quant_formats, model_path=None):
+    contract, optional_keys = _quant_checkpoint_contract(profile, quant_formats)
+    actual_keys = set(checkpoint.keys())
+    expected_keys = (set(contract) - optional_keys) | (actual_keys & optional_keys)
+    # Conversion recipes may add their own per-layer tensors next to a
+    # quantized weight (for example a W4A8 correction term). They are inert for
+    # the runtime, so an unknown `weight_*` sidecar is accepted and the shapes
+    # and dtypes that actually steer inference stay strict.
+    quantized_stems = tuple(quant_formats)
+    expected_keys |= {
+        name
+        for name in actual_keys - expected_keys
+        if any(name.startswith(f"{stem}.weight_") for stem in quantized_stems)
+    }
+    location = f", model={Path(model_path).resolve()}" if model_path is not None else ""
+    if actual_keys != expected_keys:
+        missing = sorted(expected_keys - actual_keys)[:5]
+        unexpected = sorted(actual_keys - expected_keys)[:5]
+        raise ValueError(
+            "SenseNova-U1.5 quantized checkpoint key mismatch: "
+            f"formats={sorted({value for value in quant_formats.values() if value})}, "
+            f"contract_keys={len(expected_keys)}, file_keys={len(actual_keys)}, "
+            f"missing={missing}, unexpected={unexpected}{location}. "
+            "Re-run tools/convert_sensenova_int4_convrot.py and "
+            "tools/inject_sensenova_metadata.py on the official single file."
+        )
+    for name, (shape, expected_dtype) in contract.items():
+        if name not in actual_keys:
+            continue  # an optional sidecar the conversion recipe did not emit
+        tensor = checkpoint.get_slice(name)
+        if shape is not None:
+            actual_shape = tuple(tensor.get_shape())
+            if actual_shape != shape:
+                raise ValueError(
+                    f"SenseNova-U1.5 quantized checkpoint shape mismatch for {name}: "
+                    f"{actual_shape} != {shape}"
+                )
+        actual_dtype = tensor.get_dtype()
+        accepted = expected_dtype if isinstance(expected_dtype, tuple) else (expected_dtype,)
+        if actual_dtype not in accepted:
+            raise ValueError(
+                f"SenseNova-U1.5 quantized checkpoint dtype mismatch for {name}: "
+                f"{actual_dtype} != {'/'.join(accepted)}"
+            )
+    return expected_keys, profile
+
+
+def _validate_checkpoint_header(checkpoint, model_path=None, quant_formats=None):
     profile = _validate_metadata(checkpoint.metadata() or {})
+    # >>> SenseNova fork: quantized checkpoints branch off here, the bf16 path
+    # below is unchanged from upstream T8mars. <<<
+    if quant_formats is None:
+        quant_formats = _read_quant_formats(checkpoint) if _quant_support_enabled() else {}
+    if quant_formats:
+        return _validate_quant_header(checkpoint, profile, quant_formats, model_path)
     contract = _checkpoint_contract(profile)
     actual_keys = set(checkpoint.keys())
     expected_keys = set(contract)
@@ -149,13 +329,55 @@ def _validate_checkpoint_header(checkpoint, model_path=None):
     return expected_keys, profile
 
 
+def _tokenizer_digest_kind(raw, expected):
+    """Classify a bundled tokenizer asset against its pinned digest.
+
+    Returns ``"raw"`` for a byte-identical file, ``"normalized"`` for a file
+    that only differs by CRLF line endings, and ``None`` otherwise. Windows
+    clones made with ``core.autocrlf=true`` rewrite the packaged text files,
+    which used to abort the load even though the tokenizer content is intact.
+    """
+    if hashlib.sha256(raw).hexdigest() == expected:
+        return "raw"
+    if hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest() == expected:
+        return "normalized"
+    return None
+
+
 def _validate_tokenizer_assets():
-    asset_dir = Path(__file__).resolve().parent / "tokenizer"
+    asset_dir = TOKENIZER_DIR
+    line_endings = []
     for name, expected in TOKENIZER_ASSET_SHA256.items():
         path = asset_dir / name
-        digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
-        if digest != expected:
-            raise ValueError(f"SenseNova-U1.5 tokenizer asset digest mismatch: {name}")
+        if not path.is_file():
+            raise ValueError(f"SenseNova-U1.5 tokenizer asset missing: {name}")
+        raw = path.read_bytes()
+        kind = _tokenizer_digest_kind(raw, expected)
+        if kind == "raw":
+            continue
+        if kind == "normalized":
+            # Same content, CRLF checkout. transformers reads these files with
+            # universal newlines / JSON parsing, so they still work.
+            line_endings.append(name)
+            continue
+        # A fully unexpected digest is a real integrity problem, but it is not
+        # proof of a broken tokenizer, so it warns with both hashes instead of
+        # refusing to load; compare the value with `sha256sum` by hand.
+        digest = hashlib.sha256(raw).hexdigest()
+        canonical = hashlib.sha256(raw.replace(b"\r\n", b"\n")).hexdigest()
+        print(
+            f"[SenseNova-U1.5] WARNING: tokenizer asset digest mismatch: {name} "
+            f"expected={expected} got={digest} lf_normalized={canonical}. "
+            "Continuing with the packaged file. If this was not intentional, re-clone "
+            "the node with `git config --global core.autocrlf false`."
+        )
+    if line_endings:
+        print(
+            "[SenseNova-U1.5] NOTE: tokenizer assets were checked out with CRLF line "
+            f"endings and matched after normalising: {', '.join(sorted(line_endings))}. "
+            "Loading continues normally; use `git config --global core.autocrlf false` "
+            "and re-clone to silence this note."
+        )
 
 
 def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False):
@@ -163,14 +385,18 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     if model_path.suffix.lower() not in (".safetensors", ".sft"):
         raise ValueError("SenseNova-U1.5 loader accepts safetensors files only")
     with safe_open(model_path, framework="pt", device="cpu") as checkpoint:
-        expected_keys, profile = _validate_checkpoint_header(checkpoint, model_path)
-    expected_size = _checkpoint_contract_data()["variants"][profile]["file_size"]
-    actual_size = model_path.stat().st_size
-    if actual_size != expected_size:
-        variant = CHECKPOINT_PROFILES[profile]["variant"]
-        raise ValueError(
-            f"SenseNova-U1.5 {variant.upper()} file size mismatch: {actual_size} != {expected_size}"
-        )
+        quant_formats = _read_quant_formats(checkpoint) if _quant_support_enabled() else {}
+        expected_keys, profile = _validate_checkpoint_header(checkpoint, model_path, quant_formats)
+    # >>> SenseNova fork: the pinned file size belongs to the bf16 contract;
+    # converted quantized files legitimately differ in size. <<<
+    if not quant_formats:
+        expected_size = _checkpoint_contract_data()["variants"][profile]["file_size"]
+        actual_size = model_path.stat().st_size
+        if actual_size != expected_size:
+            variant = CHECKPOINT_PROFILES[profile]["variant"]
+            raise ValueError(
+                f"SenseNova-U1.5 {variant.upper()} file size mismatch: {actual_size} != {expected_size}"
+            )
     state_dict, metadata = comfy.utils.load_torch_file(str(model_path), return_metadata=True)
     loaded_profile = _validate_metadata(metadata)
     if loaded_profile != profile:
@@ -198,15 +424,16 @@ def load_sensenova_model(model_path, dtype=torch.bfloat16, disable_dynamic=False
     if state_dict:
         raise ValueError(f"SenseNova-U1.5 unused checkpoint keys after load: {sorted(state_dict)[:5]}")
     patcher.cached_patcher_init = (load_sensenova_model, (model_path, dtype))
-    patcher.set_attachments(
-        "sensenova_checkpoint",
-        {
-            "variant": CHECKPOINT_PROFILES[profile]["variant"],
-            "profile": profile,
-            "source_repo": CHECKPOINT_PROFILES[profile]["source_repo"],
-            "source_revision": CHECKPOINT_PROFILES[profile]["source_revision"],
-        },
-    )
+    attachment = {
+        "variant": CHECKPOINT_PROFILES[profile]["variant"],
+        "profile": profile,
+        "source_repo": CHECKPOINT_PROFILES[profile]["source_repo"],
+        "source_revision": CHECKPOINT_PROFILES[profile]["source_revision"],
+    }
+    if quant_formats:
+        # >>> SenseNova fork: expose the conversion recipe to downstream nodes. <<<
+        attachment["quant_formats"] = sorted({value for value in quant_formats.values() if value})
+    patcher.set_attachments("sensenova_checkpoint", attachment)
     return patcher
 
 

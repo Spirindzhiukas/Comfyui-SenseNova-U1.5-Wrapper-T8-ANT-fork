@@ -6,6 +6,28 @@ English | [简体中文](README.md)
 
 [Changelog](CHANGELOG.md) · [GitHub Releases](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/releases)
 
+## About this fork
+
+This repository is a maintenance fork of `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8`
+at **1.3.6** (upstream fixes, the checkpoint contract, Registry versioning and the
+Blackwell-safe RoPE are all kept). On top of it:
+
+- **English UI everywhere** — node labels, slot names, structured-prompt defaults,
+  the frontend extension and the shipped example workflows. The upstream Chinese
+  wording is kept as comments so upstream merges stay easy to review.
+- **Windows/CRLF-proof loading** — the packaged tokenizer assets are validated
+  against both the raw and the LF-normalised digest, so a `core.autocrlf=true`
+  clone no longer aborts with `tokenizer asset digest mismatch`.
+- **ConvRot quantized checkpoints** — INT8 (about 17.6 GB), ConvRot W4A4 and
+  asymmetric W4A8 (about 13.8 GB), including per-layer mixes, as an *optional*
+  path that never changes bf16 behaviour.
+- **RoPE hook readiness** — the three per-axis RoPE bases can be overridden
+  through `transformer_options` for context-scaling experiments
+  ([`docs/rope_lab_integration.md`](docs/rope_lab_integration.md)), and the
+  prefix cache key includes them.
+- **Conversion tooling** in `tools/` and a maintenance contract in
+  [`memory.md`](memory.md).
+
 Native ComfyUI nodes for SenseNova U1.5. The model, sampler, scheduler, VRAM offloading, LoRA loading, and workflows all use ComfyUI's native pipeline.
 
 Supported features:
@@ -281,6 +303,68 @@ Try the following:
 - Use `global` CFG Norm for complex edits or overcooked-looking images.
 - Add `natural colors` or `restrained color grading` to the prompt.
 
+## ConvRot quantized checkpoints
+
+This is a fork-only, fully optional feature. It activates only when a checkpoint
+carries the per-layer `comfy_quant` sidecars that ComfyUI's quantized formats
+use; official bf16 files keep the exact upstream validation path (including the
+strict file-size check), and nothing is installed eagerly.
+
+| Checkpoint | Approx. size | Formats |
+| --- | --- | --- |
+| INT8 + ConvRot | 17.6 GB | `int8_tensorwise` with `convrot: true` |
+| Hybrid W4A8 (L18-41) | 13.8 GB | `asym_w4a8_int8` on later layers, INT8 elsewhere |
+| ConvRot W4A4 | 11 GB | `convrot_w4a4` |
+
+Convert your own copy of an official file (needs the ComfyUI environment with
+`comfy-kitchen`):
+
+```bash
+cd ComfyUI/custom_nodes/<this node folder>
+
+# 1. quantize; --mode mixed is the quality-first recipe (o_proj/down_proj and the
+#    conditioning MLPs stay INT8, everything else becomes ConvRot W4A4)
+python tools/convert_sensenova_int4_convrot.py \
+    -i ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-BF16-T8.safetensors \
+    -o ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8.safetensors \
+    --mode w4a8
+
+# 2. tag the header with the SenseNova provenance metadata the loader requires
+python tools/inject_sensenova_metadata.py \
+    -i ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8.safetensors \
+    -o ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8-tagged.safetensors \
+    --variant final
+
+# 3. optional: build hybrid rungs from an INT8 and a W4A8 file
+python tools/make_hybrid_ladder.py \
+    --int8 ../../models/diffusion_models/...-int8-tagged.safetensors \
+    --w4a8 ../../models/diffusion_models/...-w4a8-tagged.safetensors \
+    --rungs hybw4a8-L18-41
+```
+
+Then point `SenseNova U1.5 Loader (Final / SFT)` at the tagged file. The loader
+validates the derived contract (packed shapes, sidecar dtypes, per-layer formats)
+before a single weight is read, and reports the active formats if something does
+not line up. The 8-step LoRA keeps working on quantized Final checkpoints.
+
+Environment switches — all of them only affect quantized loads:
+
+| Variable | Effect |
+| --- | --- |
+| `SENSENOVA_NO_QUANT=1` | refuse quantized checkpoints; only the upstream bf16 contract runs |
+| `SENSENOVA_NO_BRIDGE=1` | never install the ConvRot Linear ops, use stock ComfyUI ops |
+| `SENSENOVA_FORCE_BRIDGE=1` | always install them (reproduces the original ConvRot fork numerics) |
+| `SENSENOVA_NO_QT_GUARDS=1` | skip the `QuantizedTensor` cast guards |
+
+By default the ConvRot bridge installs itself only when the running
+ComfyUI/comfy-kitchen cannot rotate activations itself; current releases
+(`comfy-kitchen >= 0.2.31`) already handle `convrot` for INT8, W4A4 and W4A8 and
+keep their GPU kernels.
+
+If a quantized checkpoint is rejected with `quantized checkpoint key mismatch`,
+re-run both steps of the conversion: the sidecar set differs between formats and
+the metadata tag is required by this node pack.
+
 ## System requirements
 
 Local and CI validation coverage:
@@ -298,7 +382,8 @@ Local and CI validation coverage:
 
 - Only NVIDIA CUDA with BF16 has been fully validated.
 - Models are not downloaded automatically at runtime.
-- Quantization, bbox/marker controls, and think mode are not exposed yet.
+- Quantized checkpoints can be loaded (see below); quantizing a checkpoint from
+  inside ComfyUI, bbox/marker controls, and think mode are still not exposed.
 - Complex subject replacement, multi-region edits, and heavily constrained edits can drift.
 - FP16, ROCm, MPS, DirectML, XPU, and NPU have not been validated.
 
@@ -334,6 +419,22 @@ Source revision: 661834c5b5aee0f89958353511d6ac0ccaacb646
 ```
 
 The loader distinguishes current Final, legacy Final, and SFT files and checks metadata, exact file size, all tensor names, shapes, and each profile's storage dtype. Invalid, incomplete, and unsupported checkpoints fail with a clear error instead of loading silently.
+
+### If you see `tokenizer asset digest mismatch`
+
+On Windows this was usually a checkout artifact: `core.autocrlf=true` rewrites the
+packaged text files to CRLF, and the loader used to hash those bytes directly. The
+fork now compares the LF-normalised digest too and prints a note instead of
+refusing to load. To get byte-identical files back:
+
+```powershell
+git config --global core.autocrlf false
+git rm --cached -r . ; git reset --hard
+```
+
+A mismatch that survives normalisation is real: compare the printed
+`got=`/`lf_normalized=` values with `sha256sum` (or `Get-FileHash`) for the file
+named in the message, and re-clone if they differ.
 
 ### If you see `checkpoint key mismatch`
 
