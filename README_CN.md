@@ -291,7 +291,9 @@ SenseNova 的文字和参考图 prefix 在每一步都相同。`SenseNova Sampli
 
 ```bash
 python tools/convert_sensenova_int4_convrot.py -i <官方.safetensors> -o <量化.safetensors> --mode w4a8
-python tools/inject_sensenova_metadata.py -i <量化.safetensors> -o <量化-tagged.safetensors> --variant final
+# 2) --variant auto（默认）沿用被转换文件自身的来源标签：由旧版混合精度 Final
+#    转换出的文件必须保持 final_legacy，由全新全 BF16 Final 转换出的保持 final
+python tools/inject_sensenova_metadata.py -i <量化.safetensors> -o <量化-tagged.safetensors> --variant final_legacy
 ```
 
 然后用 `SenseNova U1.5 Loader (Final / SFT)` 直接加载 tagged 文件即可——与 BF16 使用同一个
@@ -304,7 +306,12 @@ python tools/inject_sensenova_metadata.py -i <量化.safetensors> -o <量化-tag
 Found quantization metadata version 1
 Using mixed precision operations
 [SenseNova-U1.5] quantized checkpoint detected (int8_tensorwise); loading with mixed-precision quantization ops.
+[sensenova-u15] comfy-kitchen INT8 convrot probe on cuda:0: relative error 0.0131 rotated / 1.4142 unrotated -> honours convrot
 ```
+
+本节点不依赖 comfy-kitchen 的版本号或函数签名：它会在加载时**实测** INT8 kernel 是否真的对
+激活做了旋转。若实测结果为 `ignores convrot`，则自动改用本节点自带的 ConvRot 实现，保证权重
+始终在正确的基下求值。设置 `SENSENOVA_NO_CONVROT_PROBE=1` 可跳过实测并始终使用本节点实现。
 
 其中前两行来自 ComfyUI 核心，最为关键：缺少它们时打包权重不会被解包，现象是画面出现规则的
 方格/棋盘噪声而不报错，并伴随大段 `unet unexpected: [... weight_scale ... comfy_quant]` 警告。

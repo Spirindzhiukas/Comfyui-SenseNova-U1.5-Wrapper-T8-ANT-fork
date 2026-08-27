@@ -84,13 +84,88 @@ def _kitchen_available():
     return True
 
 
-def core_supports_convrot(formats=()):
+CONVROT_PROBE_GROUP_SIZE = 256
+_CONVROT_PROBE_CACHE = {}
+
+
+def _rotate_groups(value, hadamard, group_size):
+    features = value.shape[-1]
+    rotated = torch.matmul(value.reshape(-1, features // group_size, group_size), hadamard)
+    return rotated.reshape(value.shape)
+
+
+def kitchen_honours_int8_convrot(device=None):
+    """Measure whether the installed comfy-kitchen INT8 kernel rotates activations.
+
+    A signature check is not enough here: some builds accept ``convrot`` on
+    ``ck.int8_linear`` and quietly ignore it, which evaluates ConvRot-folded
+    weights against the wrong basis. That is exactly the "runs fine, output is a
+    checkerboard" failure, so the capability is measured instead: a small
+    deterministic INT8 weight is fed to the kernel with ``convrot=True`` and the
+    result is compared against the rotated reference and the unrotated one.
+
+    Returns True (kernel rotates), False (it does not / cannot be asked to), or
+    None when no measurement is possible; the caller treats None as "not
+    supported" so the fallback is the known-good path.
+    """
+    key = str(device)
+    if key in _CONVROT_PROBE_CACHE:
+        return _CONVROT_PROBE_CACHE[key]
+    result = None
+    try:
+        import comfy_kitchen
+
+        if not os.environ.get("SENSENOVA_NO_CONVROT_PROBE"):
+            from comfy_kitchen.backends.eager.convrot_w4a4 import _build_hadamard
+
+            group = CONVROT_PROBE_GROUP_SIZE
+            rows = columns = group * 2
+            weight = torch.randn(rows, columns, generator=torch.Generator().manual_seed(0))
+            scale = weight.abs().amax(dim=1, keepdim=True).clamp_min(1e-6) / 127.0
+            qweight = (weight / scale).round().clamp(-127, 127).to(torch.int8)
+            activations = torch.randn(8, columns, generator=torch.Generator().manual_seed(1))
+
+            target = device if device is not None else torch.device("cpu")
+            qweight = qweight.to(device=target)
+            scale = scale.to(device=target)
+            activations = activations.to(device=target)
+            weight_float = qweight.float() * scale.float()
+
+            # the reference must see the same bf16 input the kernel is fed, so
+            # only the activation quantizer can show up as error
+            kernel_input = activations.to(torch.bfloat16)
+            out = comfy_kitchen.int8_linear(
+                kernel_input, qweight, scale,
+                out_dtype=torch.float32, convrot=True, convrot_groupsize=group,
+            ).float()
+            hadamard = _build_hadamard(group, target, torch.float32)
+            activations = kernel_input.float()
+            rotated = _rotate_groups(activations, hadamard, group)
+            error_rotated = torch.linalg.vector_norm(out - rotated @ weight_float.t())
+            error_plain = torch.linalg.vector_norm(out - activations @ weight_float.t())
+            error_rotated = float(error_rotated) / max(float(torch.linalg.vector_norm(rotated @ weight_float.t())), 1e-6)
+            error_plain = float(error_plain) / max(float(torch.linalg.vector_norm(activations @ weight_float.t())), 1e-6)
+            result = error_rotated < 0.2 and error_rotated < error_plain / 4.0
+            logging.info(
+                "[sensenova-u15] comfy-kitchen INT8 convrot probe on %s: relative error %.4f rotated / "
+                "%.4f unrotated -> %s",
+                target, error_rotated, error_plain, "honours convrot" if result else "ignores convrot",
+            )
+    except Exception as exc:  # a kernel that refuses the kwargs simply gets the bridge
+        logging.debug("[sensenova-u15] convrot probe unavailable: %s", exc)
+        result = None
+    _CONVROT_PROBE_CACHE[key] = result
+    return result
+
+
+def core_supports_convrot(formats=(), device=None):
     """Is the running ComfyUI + comfy-kitchen able to rotate activations itself?
 
     ``comfy.ops`` gained per-format convrot handling for ``convrot_w4a4`` and
-    ``asym_w4a8_int8``, and it forwards ``convrot``/``convrot_groupsize`` to
-    ``comfy_kitchen.int8_linear`` for rotated INT8. Both are required to skip
-    this bridge; anything older has to use it to stay numerically correct.
+    ``asym_w4a8_int8``, which the kitchen layouts apply through their own
+    kernels. Rotated INT8 additionally needs a comfy-kitchen build whose
+    ``int8_linear`` really consumes ``convrot``, which is measured rather than
+    assumed. Anything else has to use this bridge to stay numerically correct.
     """
     if QuantizedTensor is None or TensorWiseINT8Layout is None:
         return False
@@ -98,18 +173,12 @@ def core_supports_convrot(formats=()):
     for quant_format in formats or ("int8_tensorwise", "convrot_w4a4", "asym_w4a8_int8"):
         if quant_format not in supported:
             return False
-    try:
-        import inspect
-
-        import comfy_kitchen
-
-        parameters = inspect.signature(comfy_kitchen.int8_linear).parameters
-    except Exception:
-        return False
-    return "convrot" in parameters and "convrot_groupsize" in parameters
+    if "int8_tensorwise" not in set(formats or ("int8_tensorwise",)):
+        return True
+    return kitchen_honours_int8_convrot(device) is True
 
 
-def quant_bridge_needed(state_dict):
+def quant_bridge_needed(state_dict, device=None):
     """Decide whether this state dict needs the ConvRot operations.
 
     Raises for a quantized checkpoint that the current install cannot run, so
@@ -128,7 +197,7 @@ def quant_bridge_needed(state_dict):
         )
     if os.environ.get("SENSENOVA_FORCE_BRIDGE"):
         return True
-    return not core_supports_convrot(set(value for value in formats.values() if value))
+    return not core_supports_convrot(set(value for value in formats.values() if value), device)
 
 
 def make_sensenova_quant_ops():

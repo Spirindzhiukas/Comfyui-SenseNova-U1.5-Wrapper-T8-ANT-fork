@@ -56,6 +56,12 @@ Before merging any upstream commit, diff it against these invariants:
   tripwire, and keep `comfy.utils.convert_old_quants` for legacy layouts.
   Provenance: reported by the fork owner on 2026-08-27 with Milor123's
   `SenseNova-U1.5-8B-MoT-T8-int8-convrot-tagged.safetensors`.
+- `sensenova_u15/quant_bridge.py::kitchen_honours_int8_convrot` — the ops decision
+  must stay a **measurement**. Never downgrade it to a version or signature check:
+  comfy-kitchen 0.2.28 and 0.2.31 both *accept* `convrot` on `int8_linear`, but only
+  0.2.31 applies it, and an ignored flag is again a silent wrong-basis image. Keep
+  the "unmeasurable -> use the bridge" direction (validated) and keep
+  `_validate_quantized_weights_loaded()` as the backstop.
 - `sensenova_u15/model.py` — the pure-PyTorch split-half RoPE (1.3.4 fix) must
   stay. `grep -n "quant_ops\|apply_rope_split_half" sensenova_u15/model.py` must
   stay empty; if upstream re-introduces the comfy-kitchen kernel, re-apply the
@@ -89,26 +95,10 @@ Before merging any upstream commit, diff it against these invariants:
     import; we do it from `get_model`, so bf16 streaming keeps its hot path clean
     and 4-bit weights stay intact on hardware that requests a manual cast).
 - Env switches (all documented in `README.md`, the English default):
-  `SENSENOVA_NO_QUANT=1` (reject quant files), `SENSENOVA_NO_BRIDGE=1`
-  (never install custom ops), `SENSENOVA_FORCE_BRIDGE=1` (always install, to
-  reproduce the reference numbers of the original ConvRot fork),
-  `SENSENOVA_NO_QT_GUARDS=1` (no cast guards).
-- No hard dependency on `comfy-kitchen`: every quant import is guarded and
-  optional; the bf16 path must import fine on a plain ComfyUI.
-- Deliberate deviations from `docs/THE_TASK.md` (recorded so nobody "restores"
-  them by accident):
-  1. `qt_guards.py` lives in `sensenova_u15/` (not the repo root) so it also
-     imports when `sensenova_u15` is loaded standalone by the unit tests, and it
-     is installed from `SenseNovaModelConfig.get_model` instead of `__init__.py`.
-  2. No duplicate frozen tensor table: the quant contract is *derived* from
-     `checkpoint_contract.json`, so Milor123's `sensenova_u15/checkpoint_contract.py`
-     was not ported. Upstream contract revisions then cover quant for free.
-  3. Upstream moved to 1.3.6 while this contract targeted 1.3.4; the RoPE section
-     of the task was therefore verified, not re-applied.
-  4. `docs/ROPE_AND_EMBEDDING_NODES_PROPOSAL.md` referenced by the task was not
-     present in the source folder; only the research doc exists
-     (`docs/SenseNova_MERD_and_RoPE_Lab_integration_research.md`), and
-     `docs/rope_lab_integration.md` distils it.
+  `SENSENOVA_NO_QUANT=1` (reject quant files), `SENSENOVA_NO_BRIDGE=1` (never install
+  custom ops), `SENSENOVA_FORCE_BRIDGE=1` (always install, to reproduce the reference
+  numbers of the original ConvRot fork), `SENSENOVA_NO_QT_GUARDS=1` (no cast guards),
+  `SENSENOVA_NO_CONVROT_PROBE=1` (skip the kernel measurement, always use the bridge).
 
 ## 4. Testing Protocol
 
@@ -209,6 +199,9 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 | Pure-PyTorch split-half RoPE + 6D vision rotation | `sensenova_u15/model.py::_apply_llm_rope`, `_apply_interleaved_rope` | upstream `T8mars` commit `73657001` (1.3.4); verified, not re-applied |
 | Quant header contract | `sensenova_u15/loader.py` (`QUANT_*`, `_read_quant_formats`, `_quant_checkpoint_contract`, `_validate_quant_header`) | adapted from Milor123 `sensenova_u15/loader.py` + `checkpoint_contract.py`, rebuilt on T8's JSON contract |
 | Quant ops wiring (`quant_config`, post-load invariant) | `sensenova_u15/loader.py::detect_quant_config`, `_validate_quantized_weights_loaded` | this fork, 2026-08-27, after the int8 checkerboard report; mirrors `comfy.sd.load_diffusion_model` + `comfy.model_detection` |
+| INT8 convrot capability probe (measured, not versioned) | `sensenova_u15/quant_bridge.py::kitchen_honours_int8_convrot` | this fork, 2026-08-27; reference maths cross-checked against comfy-kitchen v0.2.31 `backends/cuda/__init__.py::int8_linear` + `backends/eager/quantization.py` |
+| Injector `--variant auto` (source-revision aware tagging) | `tools/inject_sensenova_metadata.py::detect_variant` | this fork, 2026-08-27: Milor123's published int8/int4 files carry the **legacy** revision `1f6ec604`, so re-tagging them as `final` would break the non-quantized dtype checks |
+| Quant dtype profile cross-check | `sensenova_u15/loader.py::_quant_checkpoint_contract` reuses `checkpoint_contract.json[profile]` | verified 2026-08-27 to equal Milor123's `_storage_dtype` rule on all 1116 tensors for `final_legacy` (0 differences), and to differ on 519 keys for `final` — which is the real all-BF16 revision, as intended |
 | ConvRot Linear forwards | `sensenova_u15/quant_bridge.py` | Milor123 @ `7e1e320` (`quant_bridge.py`), plus our `quant_bridge_needed` / `core_supports_convrot` gate |
 | Quantized-tensor cast guards | `sensenova_u15/qt_guards.py` | Milor123 @ `7e1e320` (`qt_guards.py`), relocated + defensive lookups |
 | ops hook for quantized loads | `sensenova_u15/model_config.py::get_model` | Milor123's `model_config.py` hook, made capability-aware |

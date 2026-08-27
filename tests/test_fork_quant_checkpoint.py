@@ -288,6 +288,68 @@ class ConverterToolTests(unittest.TestCase):
                     pinned["source_revision"], loader.CHECKPOINT_PROFILES[profile]["source_revision"]
                 )
 
+    def test_injector_variant_detection_round_trips(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "inject_sensenova_metadata_2", PACKAGE_ROOT / "tools" / "inject_sensenova_metadata.py"
+        )
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+
+        for variant, pinned in tool.VARIANTS.items():
+            tags = {"format": tool.MODEL_FORMAT, "config_sha256": tool.CONFIG_SHA256, **pinned}
+            with self.subTest(variant=variant):
+                self.assertEqual(tool.detect_variant(tags), variant)
+        self.assertIsNone(tool.detect_variant({}))
+        self.assertIsNone(tool.detect_variant({"source_revision": "bogus"}))
+        other_repo = {"source_repo": "someone/else", **tool.VARIANTS["final"]}
+        self.assertIsNone(tool.detect_variant(other_repo))
+        stale = {"source_repo": tool.VARIANTS["final"]["source_repo"], "source_revision": "0" * 40}
+        self.assertIsNone(tool.detect_variant(stale))
+
+    def test_injector_rewrites_only_the_header(self):
+        """The data section must stay byte-identical: offsets are relative to it."""
+        import importlib.util
+        import json
+        import struct
+        import tempfile
+
+        spec = importlib.util.spec_from_file_location(
+            "inject_sensenova_metadata_3", PACKAGE_ROOT / "tools" / "inject_sensenova_metadata.py"
+        )
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+
+        def write(path, metadata):
+            header = {"a.weight": {"dtype": "I8", "shape": [2, 2], "data_offsets": [0, 4]}}
+            if metadata is not None:
+                header["__metadata__"] = metadata
+            raw = json.dumps(header, separators=(",", ":")).encode("utf-8")
+            path.write_bytes(struct.pack("<Q", len(raw)) + raw + b"DATA")
+
+        legacy = {"format": tool.MODEL_FORMAT, "config_sha256": tool.CONFIG_SHA256, **tool.VARIANTS["final_legacy"]}
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "in.safetensors", Path(tmp) / "out.safetensors"
+            write(src, legacy)
+            payload_before = src.read_bytes()[8 + struct.unpack("<Q", src.read_bytes()[:8])[0]:]
+            tool.rewrite_header(src, dst, tool.metadata_for(tool.detect_variant(legacy)))
+            header_after = tool.read_header(dst)
+            payload_after = dst.read_bytes()[8 + struct.unpack("<Q", dst.read_bytes()[:8])[0]:]
+
+            self.assertEqual(payload_after, payload_before)
+            self.assertEqual(header_after["a.weight"], {"dtype": "I8", "shape": [2, 2], "data_offsets": [0, 4]})
+            self.assertEqual(header_after["__metadata__"]["source_revision"], legacy["source_revision"])
+            self.assertNotIn("quantization", header_after["__metadata__"])  # untouched input keeps its own tag
+
+            untagged = Path(tmp) / "raw.safetensors"
+            write(untagged, {})
+            self.assertIsNone(tool.detect_variant(tool.read_header(untagged)["__metadata__"]))
+            tool.rewrite_header(untagged, Path(tmp) / "tagged.safetensors", tool.metadata_for("final"))
+            tagged = tool.read_header(Path(tmp) / "tagged.safetensors")["__metadata__"]
+            self.assertEqual(tagged["quantization"], tool.QUANTIZATION_TAG)
+            self.assertEqual(tagged["source_revision"], tool.VARIANTS["final"]["source_revision"])
+
     def test_converter_policy_mirrors_the_loader(self):
         source = (PACKAGE_ROOT / "tools" / "convert_sensenova_int4_convrot.py").read_text(encoding="utf-8")
         for token in loader.QUANT_EXCLUDED_SUBSTRINGS:
@@ -327,6 +389,34 @@ class QuantBridgeGateTests(unittest.TestCase):
             self.assertFalse(quant_bridge.quant_bridge_needed(state_dict))
         with mock.patch.dict(os.environ, {"SENSENOVA_FORCE_BRIDGE": "1"}):
             self.assertTrue(quant_bridge.quant_bridge_needed(state_dict))
+
+    @unittest.skipUnless(
+        importlib.util.find_spec("comfy_kitchen") is not None, "the convrot probe needs comfy-kitchen"
+    )
+    def test_convrot_probe_decides_the_ops_path(self):
+        honouring = quant_bridge.kitchen_honours_int8_convrot()
+        self.assertIn(honouring, (True, False, None))
+        # the probe is the only thing that may let a rotated INT8 file use core ops
+        self.assertEqual(
+            quant_bridge.core_supports_convrot(("int8_tensorwise",)), honouring is True
+        )
+        # cached per device: a second call must not re-measure
+        self.assertIs(quant_bridge.kitchen_honours_int8_convrot(), honouring)
+
+    def test_w4a4_and_w4a8_do_not_need_the_probe(self):
+        formats = {"int8_tensorwise", "convrot_w4a4", "asym_w4a8_int8"}
+        with mock.patch.object(quant_bridge, "QUANT_ALGOS", formats), mock.patch.object(
+            quant_bridge, "QuantizedTensor", object
+        ), mock.patch.object(quant_bridge, "TensorWiseINT8Layout", object), mock.patch.object(
+            quant_bridge, "kitchen_honours_int8_convrot", lambda device=None: None
+        ) as probe:
+            # kitchen's own layouts apply the rotation for these two, so no probe
+            self.assertTrue(quant_bridge.core_supports_convrot(("convrot_w4a4",)))
+            self.assertTrue(quant_bridge.core_supports_convrot(("asym_w4a8_int8",)))
+            self.assertEqual(probe.call_count, 0)
+            # an unmeasurable INT8 kernel falls back to the bridge instead of guessing
+            self.assertFalse(quant_bridge.core_supports_convrot(("int8_tensorwise",)))
+            self.assertEqual(probe.call_count, 1)
 
     def test_capability_probe_is_conservative(self):
         # The bridge is skipped only when the running ComfyUI understands every

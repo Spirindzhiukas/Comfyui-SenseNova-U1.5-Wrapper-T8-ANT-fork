@@ -2,6 +2,22 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
+## [1.4.2] - 2026-08-27
+
+- INT8 ConvRot 的算子选择改为**实测**：加载时在目标设备上用小规模确定性权重调用 `comfy_kitchen.int8_linear`，比较"旋转激活"与"不旋转"两种参考结果，据此决定使用 ComfyUI 原生 mixed-precision 还是本节点的 ConvRot 实现；不再依赖版本号或函数签名（0.2.28 与 0.2.31 都接收 `convrot` 参数，但只有后者真正执行）。可用 `SENSENOVA_NO_CONVROT_PROBE=1` 跳过实测。
+- 若量化权重最终不是 `QuantizedTensor`，加载直接报错（此前只会安静地产出方格图），并提示改用 `SENSENOVA_FORCE_BRIDGE=1`。
+- `tools/inject_sensenova_metadata.py` 新增 `--variant auto`（默认）：沿用文件自身的来源标签。社区 int8/int4 权重是由旧版混合精度 Final 转换而来（`1f6ec604`），必须保持 `final_legacy`，否则未量化张量的 dtype 校验会失败。
+- 量化加载现在总会安装 `QuantizedTensor` 转换保护（不再只在 bridge 模式下），因为无 BF16 的硬件会请求手动 dtype 转换。
+- 加载日志会打印检测到的量化格式、实测结论与最终所选算子；两份 README 增加"如何确认量化路径已生效"。
+
+### English
+
+- The INT8 ConvRot ops decision is now **measured**: at load time the pack calls `comfy_kitchen.int8_linear` on a small deterministic weight and compares the rotated against the unrotated reference before deciding between ComfyUI's native mixed-precision ops and this node's ConvRot forwards. Version numbers and signatures are not trustworthy here — 0.2.28 and 0.2.31 both *accept* `convrot`, only 0.2.31 applies it. `SENSENOVA_NO_CONVROT_PROBE=1` skips the measurement (always bridge).
+- Loading now fails loudly if a quantized layer did not end up as a `QuantizedTensor`, instead of silently rendering a checkerboard, and the message points at `SENSENOVA_FORCE_BRIDGE=1`.
+- `tools/inject_sensenova_metadata.py` gained `--variant auto` (the default), which keeps the file's own source tags. The community int8/int4 files were converted from the legacy mixed-precision Final (`1f6ec604`) and must stay `final_legacy`, otherwise the non-quantized tensors fail their dtype check.
+- The `QuantizedTensor` cast guards now install for every quantized load, not only bridge loads, since hardware without BF16 asks for a manual cast.
+- Load logs report the detected formats, the probe verdict and the selected ops; both READMEs document how to confirm the quantized path.
+
 ## [1.4.1] - 2026-08-27
 
 - 修复量化权重实际未被解包的问题：加载 ConvRot 检查点时现在会像 `comfy.sd.load_diffusion_model` 一样设置 `model_config.quant_config`（并调用 `comfy.utils.convert_old_quants`），否则 ComfyUI 会选择普通 Linear，把 `int8` 打包数据直接当权重使用——推理照常运行，但画面是规则方格噪声，同时控制台出现大量 `unet unexpected: [... weight_scale ... comfy_quant]`。

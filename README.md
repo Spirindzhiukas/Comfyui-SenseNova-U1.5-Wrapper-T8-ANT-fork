@@ -329,11 +329,14 @@ python tools/convert_sensenova_int4_convrot.py \
     -o ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8.safetensors \
     --mode w4a8
 
-# 2. tag the header with the SenseNova provenance metadata the loader requires
+# 2. tag the header with the SenseNova provenance metadata the loader requires;
+#    --variant auto (the default) keeps the tags of the file you converted from,
+#    which matters: a conversion of the legacy mixed-precision Final has to stay
+#    final_legacy, a conversion of the all-BF16 Final has to stay final.
 python tools/inject_sensenova_metadata.py \
-    -i ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8.safetensors \
-    -o ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8-tagged.safetensors \
-    --variant final
+    -i ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8.safetensors\
+    -o ../../models/diffusion_models/SenseNova-U1.5-8B-MoT-int8-tagged.safetensors\
+    --variant final_legacy        # or 'auto' when the source file is already tagged
 
 # 3. optional: build hybrid rungs from an INT8 and a W4A8 file
 python tools/make_hybrid_ladder.py \
@@ -355,8 +358,17 @@ ComfyUI's console must show these lines while the model loads:
 Found quantization metadata version 1
 Using mixed precision operations
 [SenseNova-U1.5] quantized checkpoint detected (int8_tensorwise); loading with mixed-precision quantization ops.
-[sensenova-u15] quantized weights: ComfyUI native mixed-precision operations (...)
+[sensenova-u15] comfy-kitchen INT8 convrot probe on cuda:0: relative error 0.0131 rotated / 1.4142 unrotated -> honours convrot
+[sensenova-u15] quantized weights: ComfyUI native mixed-precision operations (SENSENOVA_FORCE_BRIDGE=1 / SENSENOVA_NO_BRIDGE=1 to override)
 ```
+
+The probe line is the interesting one: this node does not trust the
+`comfy-kitchen` version or its function signature, it *measures* whether the INT8
+kernel rotates activations, and only then lets ComfyUI's own ops handle the file.
+If the kernel ignores the flag, the message says `ignores convrot` and this node's
+own ConvRot forwards are used instead, so the weights are always evaluated in the
+right basis. `SENSENOVA_NO_CONVROT_PROBE=1` skips the measurement and always takes
+the bridge route.
 
 `Found quantization metadata version 1` and `Using mixed precision operations` come
 from ComfyUI core and are the important ones: without them the packed weights are
@@ -379,11 +391,13 @@ Environment switches — all of them only affect quantized loads:
 | `SENSENOVA_NO_BRIDGE=1` | never install the ConvRot Linear ops, use stock ComfyUI ops |
 | `SENSENOVA_FORCE_BRIDGE=1` | always install them (reproduces the original ConvRot fork numerics) |
 | `SENSENOVA_NO_QT_GUARDS=1` | skip the `QuantizedTensor` cast guards |
+| `SENSENOVA_NO_CONVROT_PROBE=1` | skip the load-time kernel measurement and always use this pack's ConvRot forwards |
 
 By default the ConvRot bridge installs itself only when the running
-ComfyUI/comfy-kitchen cannot rotate activations itself; current releases
-(`comfy-kitchen >= 0.2.31`) already handle `convrot` for INT8, W4A4 and W4A8 and
-keep their GPU kernels.
+ComfyUI/comfy-kitchen cannot rotate activations itself — and that decision is
+measured on your GPU at load time, not read off a version number. ConvRot W4A4
+and W4A8 weights always go through ComfyUI's own kernels, because the kitchen
+layouts apply the rotation for those formats themselves.
 
 If a quantized checkpoint is rejected with `quantized checkpoint key mismatch`,
 re-run both steps of the conversion: the sidecar set differs between formats and

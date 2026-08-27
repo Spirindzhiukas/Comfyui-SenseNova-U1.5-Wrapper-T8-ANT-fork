@@ -115,7 +115,7 @@ class SenseNovaModelConfig(comfy.supported_models_base.BASE):
                 # dtype casts untouched, so guard them before anything is cast:
                 # core asks for a manual cast on hardware without BF16.
                 install_quant_guards()
-                use_bridge = quant_bridge_needed(state_dict)
+                use_bridge = quant_bridge_needed(state_dict, device=device)
                 logging.info(
                     "[sensenova-u15] quantized weights: %s operations "
                     "(SENSENOVA_FORCE_BRIDGE=1 / SENSENOVA_NO_BRIDGE=1 to override)",
