@@ -2,6 +2,40 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
+## [Unreleased] - 2026-08-28
+
+- 两份 README 增加完整的署名与来源说明：逐文件列出哪些代码来自 T8mars（上游 1.3.6 基座）、
+  哪些移植自 `Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320`、以及本分支改了什么；
+  `NOTICE` 同步补充两段上游署名、社区模型仓库与 ConvRot / comfy-kitchen /
+  convert_to_quant / ComfyUI 的致谢。
+- 模型下载改为“按仓库区分”：bf16 与官方精度权重在 `t8star/SenseNova-U1.5-Comfy`，
+  量化 ConvRot 权重在 `Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`；并说明
+  8-step LoRA 在两个仓库里字节一致、Milor123 的量化文件按 `final_legacy` 校验、
+  W4A4 没有现成文件需自行转换。
+- 删除 ComfyUI Registry / ComfyUI-Manager 安装说明（本分支未发布到 Registry），安装改为
+  Git 克隆本仓库，徽章、Releases 链接与示例命令一并指向本仓库。
+- 模型校验补充 Milor123 两个量化文件的大小与 SHA256；支持矩阵补上“量化 Final”一行。
+- `tests/test_metadata.py` 的本地链接检查现在会忽略 `#` 锚点部分，便于跨文档跳转。
+
+### English
+
+- Both READMEs gained a full "Credits and provenance" section: a file-by-file
+  breakdown of what comes from T8mars (upstream 1.3.6 base), what was ported from
+  `Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320`, and what this fork changed.
+  `NOTICE` now carries the same attribution for both upstreams, the community model
+  repositories, and ConvRot / comfy-kitchen / convert_to_quant / ComfyUI.
+- "Download the models" is now organised per repository: bf16 and official-precision
+  checkpoints live in `t8star/SenseNova-U1.5-Comfy`, quantized ConvRot checkpoints in
+  `Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`, including the notes that the
+  8-step LoRA is byte-identical in both, that Milor123's quants validate as
+  `final_legacy`, and that no W4A4 file is published.
+- Removed the ComfyUI Registry / ComfyUI-Manager installation instructions (this fork
+  is not on the Registry); installation is now a Git clone of this repository, and the
+  badge, Releases link and example commands point here too.
+- Model verification lists size and SHA256 for Milor123's two quantized files, and the
+  support matrix gained a "quantized Final" row.
+- `tests/test_metadata.py` now ignores the `#anchor` part when checking local links.
+
 ## [1.4.2] - 2026-08-27
 
 - INT8 ConvRot 的算子选择改为**实测**：加载时在目标设备上用小规模确定性权重调用 `comfy_kitchen.int8_linear`，比较"旋转激活"与"不旋转"两种参考结果，据此决定使用 ComfyUI 原生 mixed-precision 还是本节点的 ConvRot 实现；不再依赖版本号或函数签名（0.2.28 与 0.2.31 都接收 `convrot` 参数，但只有后者真正执行）。可用 `SENSENOVA_NO_CONVROT_PROBE=1` 跳过实测。

@@ -1,16 +1,22 @@
-# SenseNova-U1.5 ComfyUI 节点
+# SenseNova-U1.5 ComfyUI 节点（ANT 分支）
 
 [English](README.md) | 简体中文
 
-[![CI](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml/badge.svg)](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/actions/workflows/ci.yml)
+[![CI](https://github.com/Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork/actions/workflows/ci.yml/badge.svg)](https://github.com/Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork/actions/workflows/ci.yml)
 
-[版本更新记录](CHANGELOG.md) · [GitHub Releases](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/releases)
+[版本更新记录](CHANGELOG.md) · [GitHub Releases](https://github.com/Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork/releases)
+
+> **本分支没有发布到 ComfyUI Registry**，也无法在 ComfyUI-Manager 里按名字搜索到，
+> 请用 Git 安装（见[安装](#安装)）。Registry 上的 `sensenova-u15-t8` 属于上游作者
+> [T8mars](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8)。
 
 ## 本分支说明
 
-本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` **1.3.6** 的维护分支，在上游
-功能之上增加（详见 [`memory.md`](memory.md) 与
-[`README.md`](README.md)（英文主文档））：
+本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` **1.3.6** 的维护分支，并在其上
+移植了 `Milor123/ComfyUI-SenseNova-U1.5-ConvRot` 的 ConvRot 量化支持，再加上本分支
+自己的修复（详见 [`memory.md`](memory.md) 与 [`README.md`](README.md)（英文主文档））。
+逐文件说明“哪些代码来自 T8mars、哪些移植自 Milor123、本分支改了什么”，见英文主文档的
+[Credits and provenance](README.md#credits-and-provenance) 一节。除上述移植与修复外，本分支在上游功能之上还增加了：
 
 - 界面全面英文化：节点名、插槽名、结构化编辑提示默认值、前端扩展与内置示例工作流；
   上游中文原文保留为注释，方便继续合并 T8mars 更新。
@@ -39,24 +45,61 @@
 
 ## 安装
 
-最简单的方法是在 ComfyUI-Manager 里搜索 `SenseNova U1.5 (T8)`，安装后重启 ComfyUI。
-
-- Registry：[sensenova-u15-t8](https://registry.comfy.org/nodes/sensenova-u15-t8)
-- Comfy CLI：`comfy node install sensenova-u15-t8`
-
-也可以手动安装：
+请用 Git 安装。本分支没有发布到 ComfyUI Registry，不能用 `comfy node install`，
+也无法在 ComfyUI-Manager 里按名字搜索到：
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8.git
+git clone https://github.com/Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork.git
 ```
 
-本项目没有额外的 Python 依赖。
+然后重启 ComfyUI。以后更新：
+
+```bash
+cd ComfyUI/custom_nodes/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork
+git pull
+```
+
+在 ComfyUI-Manager 里也可以使用“Install via Git URL”，地址相同。不要同时安装上游的
+`SenseNova U1.5 (T8)` Registry 版本：`custom_nodes/` 下出现两份相同节点 id 是
+`checkpoint key mismatch` 最常见的原因。
+
+依赖：
+
+- BF16 路径没有额外的 Python 依赖。
+- 可选的量化（ConvRot）路径使用 ComfyUI 环境中的 `comfy-kitchen`，建议 `>= 0.2.31`
+  （它的 INT8 kernel 才真正执行 ConvRot 旋转）；更旧的版本仍可使用，本节点会在加载时
+  实测 kernel 行为并自动切换到自带的 ConvRot 实现。
+
+想使用 Registry 上的上游版本，请到
+[T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8)；
+它不能加载量化后的 ConvRot 权重。
 
 ## 下载模型
 
-- [Hugging Face：t8star/SenseNova-U1.5-Comfy](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/)
-- [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
+### 哪个仓库有哪些模型
+
+本节点会用到的权重由两个社区仓库发布，内容不同；模型本身由 OpenSenseNova 发布，
+两个社区仓库发布的都是官方权重转换后的版本。
+
+| 仓库 | 发布者 | 内容 |
+|---|---|---|
+| [`t8star/SenseNova-U1.5-Comfy`](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/) | **T8mars**（本分支所基于的上游封装作者） | **全精度（BF16）权重**：全 BF16 Final（约 35 GB）、旧版混合精度 Final（约 50 GB）、SFT（约 35 GB）、ComfyUI 原生键名的 8-step LoRA（约 815 MB），并附带每份权重的 `*.manifest.json`。网盘镜像：[夸克](https://pan.quark.cn/s/6b756fdae32d) |
+| [`Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`](https://huggingface.co/Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8) | **Milor123**（ConvRot 量化分支作者，量化代码即移植自他的仓库） | **量化 ConvRot 权重**：INT8-ConvRot（约 17.6 GiB，推荐的量化文件）与混合 INT8+W4A8 `L18-41`（约 13.8 GiB），`Loras/` 下另有一份相同的 8-step LoRA |
+| [`sensenova/SenseNova-U1.5-8B-MoT`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT) · [`-SFT`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-SFT) · [`-LoRAs`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-LoRAs) | **OpenSenseNova**（模型作者） | 两个社区仓库转换所依据的**官方原始权重**；需要自己转换时才用：raw LoRA 需要 `tools/convert_lora_to_comfy.py`，分片权重需要 `tools/merge_safetensors.py` |
+
+简单记法：**BF16 权重在 `t8star` 仓库，量化权重在 `Milor123` 仓库。**
+
+三点注意事项：
+
+- Milor123 的量化权重由**旧版混合精度 Final**（revision `1f6ec604`）转换而来，因此
+  这里按 `final_legacy` 校验；元数据注入工具的 `--variant auto`（默认）会自动保留该标签。
+- 8-step LoRA 在两个仓库里是**同一个文件**（逐字节相同，SHA256 `dd5320f0…`），
+  从任意一个仓库下载即可。
+- 没有任何仓库发布 ConvRot **W4A4**（约 11 GB）文件，需要用
+  `tools/convert_sensenova_int4_convrot.py` 自行转换。
+
+### BF16 / 官方精度文件 —— `t8star/SenseNova-U1.5-Comfy`
 
 按需要下载：
 
@@ -79,7 +122,17 @@ LoRA 路径：
 ComfyUI/models/loras/
 ```
 
-Manager 只安装节点，不会自动下载模型。
+### 量化 ConvRot 文件 —— `Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`
+
+| 文件 | 放置位置 | 用途 |
+|---|---|---|
+| `SenseNova-U1.5-8B-MoT-T8-int8-convrot-tagged.safetensors` | `ComfyUI/models/diffusion_models/` | INT8 + ConvRot，约 17.6 GiB，推荐的量化文件 |
+| `SenseNova-U1.5-8B-MoT-T8-hybw4a8-L18-41.safetensors` | `ComfyUI/models/diffusion_models/` | 混合精度：第 0～17 层 INT8，第 18～41 层非对称 W4A8，约 13.8 GiB |
+| `Loras/SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors` | `ComfyUI/models/loras/` | 与 `t8star` 仓库中相同的 8-step LoRA |
+
+这些文件已经带有所需的 SenseNova 元数据标签，不需要再运行注入工具。放到
+`ComfyUI/models/diffusion_models/SenseNovaU1.5/` 这样的子目录也可以，ComfyUI 会列出它。
+安装节点与下载权重是分开的两步，节点本身不会下载任何模型。
 
 Final 和 SFT 都是 SenseNova U1.5，本节点都支持 50 步文生图和图像编辑。新版 BF16 Final 是官方在相同 Final 模型上进行的全 BF16 转换和重新分片；节点同时严格支持新版 35 GB Final 和旧版 50 GB Final。SFT 是不同训练阶段的独立权重，不要混为同一个文件。
 
@@ -375,6 +428,26 @@ tensor：1116（全部 BF16）
 revision：661834c5b5aee0f89958353511d6ac0ccaacb646
 ```
 
+Milor123 发布的量化权重（均由旧版混合精度 Final 转换而来，按 `final_legacy` 校验）：
+
+```text
+文件：SenseNova-U1.5-8B-MoT-T8-int8-convrot-tagged.safetensors
+大小：18,872,613,872 bytes（17.58 GiB）
+SHA256：f49eb10fd8c51f172a69788a3fe0e68534f69b3e04f7a45b0f042f46aa7da855
+格式：int8_tensorwise，convrot
+```
+
+```text
+文件：SenseNova-U1.5-8B-MoT-T8-hybw4a8-L18-41.safetensors
+大小：14,821,019,712 bytes（13.80 GiB）
+SHA256：72551898faee2aeada901e407e76987d1de68a323e4d16cccdb02ded471a73db
+格式：第 0～17 层 int8_tensorwise，第 18～41 层 asym_w4a8_int8
+```
+
+量化文件不做精确文件大小校验（大小取决于转换配方），而是通过派生契约校验 tensor 名称、
+shape、每层格式与侧车 dtype，并在加载后检查 `QuantizedTensor` 不变量；上面的哈希用于
+校验下载文件。
+
 节点会区分新版 Final、旧版 Final 和 SFT，并检查 metadata、全部 tensor 名称、shape 和各版本的存储 dtype。如果下载不完整或版本不对，会直接报错，不会静默加载错误权重。
 
 ### 出现 `checkpoint key mismatch` 怎么办
@@ -409,15 +482,21 @@ Get-FileHash .\SenseNova-U1.5-8B-MoT-SFT-T8.safetensors -Algorithm SHA256
 Get-FileHash .\SenseNova-U1.5-8B-MoT-LoRA-8step-ComfyUI.safetensors -Algorithm SHA256
 ```
 
-## 其他链接
+## 上游作者链接
 
-- [B站](https://space.bilibili.com/385085361)
-- [YouTube](https://www.youtube.com/@T8star-Aix/)
-- [AI API](https://api.seedance.nz/sign-up?aff=5f4w)
-- [在线 AI 应用](https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121)
-- [ComfyUI 整合包](https://pan.quark.cn/s/264edb7e36bd)
-- [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
+**T8mars / T8star** —— 本分支所基于的上游封装作者：
+
+- [封装仓库](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8)
+- [模型仓库 `t8star/SenseNova-U1.5-Comfy`](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/)（BF16 / 官方精度权重）
 - [Hugging Face 主页](https://huggingface.co/t8star)
+- [B站](https://space.bilibili.com/385085361) · [YouTube](https://www.youtube.com/@T8star-Aix/)
+- [ComfyUI 整合包](https://pan.quark.cn/s/264edb7e36bd) · [模型网盘](https://pan.quark.cn/s/6b756fdae32d)
+- [AI API](https://api.seedance.nz/sign-up?aff=5f4w) · [在线 AI 应用](https://www.runninghub.ai/zh-cn/user-center/1907375370302308353/userPost?inviteCode=rh-v1121)
+
+**Milor123** —— ConvRot 量化分支与量化权重的作者：
+
+- [ConvRot 分支仓库](https://github.com/Milor123/ComfyUI-SenseNova-U1.5-ConvRot)
+- [模型仓库 `Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`](https://huggingface.co/Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8)（INT8-ConvRot 与混合 W4A8 权重）
 
 ## 来源与许可
 
@@ -427,4 +506,12 @@ SenseNova-U1.5 模型和参考实现来自 [OpenSenseNova/SenseNova-U1](https://
 - [官方 U1.5 SFT](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-SFT)
 - [官方 U1.5 LoRAs](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-LoRAs)
 
-本仓库只提供 ComfyUI 本地推理适配，不包含模型权重。详细归因见 [NOTICE](NOTICE)。
+本仓库是 [T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8)
+（Apache License 2.0）的分支，并包含移植自
+[Milor123/ComfyUI-SenseNova-U1.5-ConvRot](https://github.com/Milor123/ComfyUI-SenseNova-U1.5-ConvRot)
+（Apache License 2.0）的代码；两位作者的署名见英文主文档的
+[Credits and provenance](README.md#credits-and-provenance) 一节以及 [NOTICE](NOTICE)，本分支同样以
+[Apache License 2.0](LICENSE) 发布。
+
+本仓库只提供 ComfyUI 本地推理适配，不包含模型权重，也没有发布到 ComfyUI Registry。权重由各自的
+仓库按其自身许可发布，见[下载模型](#下载模型)。
