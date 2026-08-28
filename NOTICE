@@ -1,6 +1,58 @@
 This project implements local ComfyUI inference support for SenseNova-U1.5.
+It is a fork: the node pack comes from one upstream project, the quantization
+stack was ported from another. Both are credited below.
 
-Model and reference implementation:
+--------------------------------------------------------------------------
+1. Code provenance
+--------------------------------------------------------------------------
+
+Base (node pack, bf16 path, checkpoint contract, examples, tests):
+- T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8, taken at version 1.3.6
+  https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8
+- Copyright T8mars (T8star) contributors; Apache License 2.0
+- Kept from upstream and not reimplemented here: the 1.3.4 pure-PyTorch
+  split-half RoPE fix and the 1.3.5 1116-tensor checkpoint contract
+  (checkpoint_contract.json) with file-size, storage-dtype and
+  legacy-revision validation.
+
+Ported (all quantized / ConvRot code paths):
+- Milor123/ComfyUI-SenseNova-U1.5-ConvRot at commit 7e1e320
+  https://github.com/Milor123/ComfyUI-SenseNova-U1.5-ConvRot
+- Copyright Milor123 contributors; Apache License 2.0
+- Ported files and logic: sensenova_u15/quant_bridge.py,
+  sensenova_u15/qt_guards.py, the quant detection and per-format contract in
+  sensenova_u15/loader.py, the custom_operations hook in
+  sensenova_u15/model_config.py, and tools/convert_sensenova_int4_convrot.py,
+  tools/make_hybrid_ladder.py, tools/inject_sensenova_metadata.py.
+- Not taken: Milor123's checkpoint_contract.py (BASE_CONTRACT). Quantized
+  validation here is derived from the upstream JSON contract so the file-size,
+  final_legacy and SFT checks survive.
+
+Changes made by this fork (Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork):
+- CRLF-tolerant tokenizer asset validation (.gitattributes pins LF)
+- English UI labels, defaults, frontend extension and example workflows
+- English-first documentation layout (README.md / README_CN.md)
+- Quantization wiring (model_config.quant_config, comfy.utils.convert_old_quants)
+  and a post-load QuantizedTensor invariant
+- Measured comfy-kitchen INT8 convrot capability probe instead of a version check
+- Capability-aware ConvRot bridge and lazy installation of the cast guards
+- --variant auto in the metadata injector; Windows path cleanups in the tools
+- Per-axis RoPE thetas exposed through transformer_options (ANT RoPE Lab work)
+- See memory.md and the "Credits and provenance" section of README.md.
+
+Third-party methods and runtimes used through their public interfaces:
+- ConvRot - Hanzuliang et al.; technical notes in
+  https://github.com/Comfy-Org/ComfyUI/issues/14735
+- Comfy-Org/comfy-kitchen - quantized tensor runtimes (Apache-2.0)
+- silveroxides/convert_to_quant - converter lineage behind the quantization
+  scripts (via Milor123)
+- ComfyUI (Comfy-Org) - used through its public model, node, sampling,
+  attention, operation and model-management interfaces.
+
+--------------------------------------------------------------------------
+2. Model and reference implementation
+--------------------------------------------------------------------------
+
 - SenseNova-U1.5-8B-MoT BF16, revision 19bc874ef6ffc97fda9837b40fc1d1301806158a
 - SenseNova-U1.5-8B-MoT legacy mixed precision, revision 1f6ec60423d29939dde4202fd82ae340b144e280
 - SenseNova-U1.5-8B-MoT-SFT, revision 661834c5b5aee0f89958353511d6ac0ccaacb646
@@ -8,5 +60,13 @@ Model and reference implementation:
 - OpenSenseNova/SenseNova-U1 feat/u1.5, audited at commit 76c32c2fb0bb325f0116c6120b518a7df6a93430
 - Copyright OpenSenseNova contributors; Apache License 2.0
 
-ComfyUI is a separate project and is used through its public model, node,
-sampling, attention, operation, and model-management interfaces.
+Community checkpoint repositories (this project ships no weights):
+- t8star/SenseNova-U1.5-Comfy (T8mars) - bf16 / official-precision checkpoints
+  https://huggingface.co/t8star/SenseNova-U1.5-Comfy/
+- Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8 - quantized ConvRot
+  checkpoints (int8_tensorwise and hybrid asym_w4a8_int8 L18-41)
+  https://huggingface.co/Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8
+  SHA256: f49eb10fd8c51f172a69788a3fe0e68534f69b3e04f7a45b0f042f46aa7da855
+          (SenseNova-U1.5-8B-MoT-T8-int8-convrot-tagged.safetensors)
+          72551898faee2aeada901e407e76987d1de68a323e4d16cccdb02ded471a73db
+          (SenseNova-U1.5-8B-MoT-T8-hybw4a8-L18-41.safetensors)

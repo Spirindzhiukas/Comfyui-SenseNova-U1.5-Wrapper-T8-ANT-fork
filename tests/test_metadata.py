@@ -107,8 +107,13 @@ class MetadataTests(unittest.TestCase):
             readme = (PACKAGE_ROOT / readme_name).read_text(encoding="utf-8")
             local_links = [value for value in re.findall(r"\]\(([^)]+)\)", readme) if "://" not in value]
             for value in local_links:
+                # an in-page/anchor target such as "README.md#credits-and-provenance"
+                # still has to point at a file that exists.
+                target = value.split("#", 1)[0]
+                if not target:
+                    continue
                 with self.subTest(readme=readme_name, value=value):
-                    self.assertTrue((PACKAGE_ROOT / value).is_file())
+                    self.assertTrue((PACKAGE_ROOT / target).is_file())
         for name in (
             "t2i-workflow.jpg",
             "edit-workflow.jpg",
