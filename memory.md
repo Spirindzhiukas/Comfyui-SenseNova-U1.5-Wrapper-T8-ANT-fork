@@ -1,8 +1,8 @@
 # memory.md — Maintenance Protocols for This SenseNova Fork
 
 Repository: `Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork`
-Base: `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` **1.3.6** (upstream RoPE fix from 1.3.4 included)
-Self-version: `1.4.0` (see `CHANGELOG.md`)
+Base: `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` (started at **1.3.6**; fixes synchronized through **1.3.7**)
+Self-version: `1.4.3` (see `CHANGELOG.md`)
 Contract this file implements: `docs/THE_TASK.md`
 Quant source: `Milor123/ComfyUI-SenseNova-U1.5-ConvRot` @ `7e1e320` (v1.3.1 base)
 
@@ -65,7 +65,10 @@ Before merging any upstream commit, diff it against these invariants:
 - `sensenova_u15/model.py` — the pure-PyTorch split-half RoPE (1.3.4 fix) must
   stay. `grep -n "quant_ops\|apply_rope_split_half" sensenova_u15/model.py` must
   stay empty; if upstream re-introduces the comfy-kitchen kernel, re-apply the
-  fix and keep the Blackwell comment.
+  fix and keep the Blackwell comment. The 1.3.7 prefix attention fix must also
+  stay: `forward_prefix` casts `attention_mask` to `query.dtype` before calling
+  `optimized_attention`. Keep passing this fork's `transformer_options` into
+  `_project` while applying future upstream edits.
 - `sensenova_u15/quant_bridge.py`, `sensenova_u15/qt_guards.py` — ours (ported
   from Milor123). If upstream grows its own quant path, compare and keep the
   ConvRot-aware one only where upstream is weaker (see §3).
@@ -162,8 +165,9 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 
 ## 5. Versioning
 
-- Upstream version wins the first three components; this fork bumps the minor on
-  a feature drop (`1.3.6` → `1.4.0`) and says which upstream it is based on.
+- This fork keeps its own monotonic `1.4.x` line after the original feature drop
+  (`1.3.6` → `1.4.0`). Do not downgrade it to a later upstream `1.3.x` release;
+  increment the fork patch version and document which upstream fixes were synced.
 - `tests/test_metadata.py` pins the version string; update it together with
   `pyproject.toml`.
 - `CHANGELOG.md` keeps its Chinese body and adds an English block per fork release.
@@ -203,6 +207,8 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 | English frontend label | `web/sensenova_reference_labels_v131e.js::referenceLabel` | this fork (this JS overrides the Python label at runtime) |
 | English prompt sections | `sensenova_u15/guidance.py::build_structured_edit_prompt` | this fork; Chinese kept in the docstring |
 | Pure-PyTorch split-half RoPE + 6D vision rotation | `sensenova_u15/model.py::_apply_llm_rope`, `_apply_interleaved_rope` | upstream `T8mars` commit `73657001` (1.3.4); verified, not re-applied |
+| Prefix attention mask cast to query dtype | `sensenova_u15/model.py::Attention.forward_prefix` | upstream T8mars PR #5 / commit `8f322794` (released in 1.3.7); test adapted to preserve this fork's `transformer_options` argument |
+| Upstream 1.3.7 sync audit | `docs/UPSTREAM_SYNC_1.3.7.md` | this fork, 2026-08-31; covers upstream PRs #5 and #6 and retained invariants |
 | Quant header contract | `sensenova_u15/loader.py` (`QUANT_*`, `_read_quant_formats`, `_quant_checkpoint_contract`, `_validate_quant_header`) | adapted from Milor123 `sensenova_u15/loader.py` + `checkpoint_contract.py`, rebuilt on T8's JSON contract |
 | Quant ops wiring (`quant_config`, post-load invariant) | `sensenova_u15/loader.py::detect_quant_config`, `_validate_quantized_weights_loaded` | this fork, 2026-08-27, after the int8 checkerboard report; mirrors `comfy.sd.load_diffusion_model` + `comfy.model_detection` |
 | INT8 convrot capability probe (measured, not versioned) | `sensenova_u15/quant_bridge.py::kitchen_honours_int8_convrot` | this fork, 2026-08-27; reference maths cross-checked against comfy-kitchen v0.2.31 `backends/cuda/__init__.py::int8_linear` + `backends/eager/quantization.py` |

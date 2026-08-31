@@ -16,7 +16,7 @@ English | [简体中文](README_CN.md)
 
 This repository is a maintenance fork of
 [`T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8`](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8)
-at **1.3.6**, with the ConvRot quantization stack of
+with upstream fixes synchronized through **1.3.7**, with the ConvRot quantization stack of
 [`Milor123/ComfyUI-SenseNova-U1.5-ConvRot`](https://github.com/Milor123/ComfyUI-SenseNova-U1.5-ConvRot)
 ported on top of it, plus this fork's own fixes. Upstream's fixes, checkpoint
 contract and Blackwell-safe RoPE are all kept.
@@ -624,14 +624,16 @@ support them, this fork would not exist without either.
 
 ```text
 OpenSenseNova/SenseNova-U1                     model + reference implementation (Apache-2.0)
-└─ T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8   ComfyUI wrapper, Apache-2.0 — base of this fork, taken at 1.3.6
+└─ T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8   ComfyUI wrapper, Apache-2.0 — fixes synced through 1.3.7
    ├─ Milor123/ComfyUI-SenseNova-U1.5-ConvRot        ConvRot quantization fork, Apache-2.0 (7e1e320)
    └─ Spirindzhiukas/...-Wrapper-T8-ANT-fork         this repository
 ```
 
 This repository is a direct GitHub fork of **T8mars'** wrapper, not of Milor123's
-fork: the base stayed upstream 1.3.6 and Milor123's quantization code was ported
-into it file by file, which is what keeps upstream merges possible.
+fork: it started from upstream 1.3.6, Milor123's quantization code was ported
+into it file by file, and subsequent T8mars fixes are reviewed and integrated.
+The latest review synchronized upstream PRs #5 and #6 (release 1.3.7); see
+[`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md).
 
 ### What comes from T8mars
 
@@ -650,7 +652,7 @@ wrote it unless a fix required a change:
 | Checkpoint and LoRA tooling | `tools/build_checkpoint_contract.py`, `tools/convert_lora_to_comfy.py`, `tools/merge_safetensors.py`, `tools/validate_lifecycle.py`, `tools/validate_native.py`, `tools/run_upstream_oracle.py`, `tools/run_upstream_edit_oracle.py`, `tools/analyze_trace.py`, `tools/analyze_module_trace.py` |
 | Test suite | `tests/*`, except the three `test_fork_*` files we added |
 | Documentation images | `docs/images/*` |
-| Two upstream fixes this fork deliberately keeps | the **1.3.4 pure-PyTorch split-half RoPE** (Blackwell / CUDA 13 safe) and the **1.3.5 checkpoint contract** with file-size, storage-dtype and legacy-revision validation |
+| Upstream fixes this fork deliberately keeps | the **1.3.4 pure-PyTorch split-half RoPE** (Blackwell / CUDA 13 safe), the **1.3.5 checkpoint contract** with file-size, storage-dtype and legacy-revision validation, and the **1.3.7 prefix-mask dtype fix** for BF16 PyTorch SDPA |
 
 ### What was ported from Milor123
 

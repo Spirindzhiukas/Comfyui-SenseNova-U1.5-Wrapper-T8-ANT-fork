@@ -12,7 +12,7 @@
 
 ## 本分支说明
 
-本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` **1.3.6** 的维护分支，并在其上
+本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` 的维护分支，上游修复已同步至 **1.3.7**，并在其上
 移植了 `Milor123/ComfyUI-SenseNova-U1.5-ConvRot` 的 ConvRot 量化支持，再加上本分支
 自己的修复（详见 [`memory.md`](memory.md) 与 [`README.md`](README.md)（英文主文档））。
 逐文件说明“哪些代码来自 T8mars、哪些移植自 Milor123、本分支改了什么”，见英文主文档的

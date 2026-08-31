@@ -2,9 +2,12 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
-## [Unreleased] - 2026-08-28
+## [1.4.3] - 2026-08-31
 
-- 两份 README 增加完整的署名与来源说明：逐文件列出哪些代码来自 T8mars（上游 1.3.6 基座）、
+- 调查并集成 T8mars 上游 PR [#5](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/5)：prefix attention mask 在调用 ComfyUI attention 后端前转换为 query dtype，避免 PyTorch SDPA 在 FP32 mask 配合 BF16 Q/K/V 时产生有限但数值错误的输出；新增回归测试。
+- 审查上游发布 PR [#6](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/6)：保留本分支较新的 `1.4.x` 版本线而不降级为上游 `1.3.7`，本次发布为 `1.4.3`；上游 changelog 内容已合并到本条目。
+- 合并时保留本分支的 `transformer_options` RoPE 参数传递、ConvRot 量化路径、CRLF 容错、英文 UI 和文档布局；完整审计见 [`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md)。
+- 两份 README 增加完整的署名与来源说明：逐文件列出哪些代码来自 T8mars（最初的上游 1.3.6 基座，修复同步至 1.3.7）、
   哪些移植自 `Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320`、以及本分支改了什么；
   `NOTICE` 同步补充两段上游署名、社区模型仓库与 ConvRot / comfy-kitchen /
   convert_to_quant / ComfyUI 的致谢。
@@ -19,8 +22,11 @@
 
 ### English
 
+- Investigated and integrated T8mars upstream PR [#5](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/5): the prefix attention mask is cast to the query dtype before ComfyUI dispatches to an attention backend, preventing finite but numerically incorrect PyTorch SDPA output with an FP32 mask and BF16 Q/K/V. Added a regression test.
+- Reviewed upstream release PR [#6](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/6): retained this fork's newer `1.4.x` version line instead of downgrading to upstream `1.3.7`, and released this integration as `1.4.3`; the upstream changelog content is represented here.
+- Preserved this fork's `transformer_options` RoPE plumbing, ConvRot quantization, CRLF tolerance, English UI, and documentation layout during integration. The complete audit is in [`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md).
 - Both READMEs gained a full "Credits and provenance" section: a file-by-file
-  breakdown of what comes from T8mars (upstream 1.3.6 base), what was ported from
+  breakdown of what comes from T8mars (initial upstream 1.3.6 base, fixes synchronized through 1.3.7), what was ported from
   `Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320`, and what this fork changed.
   `NOTICE` now carries the same attribution for both upstreams, the community model
   repositories, and ConvRot / comfy-kitchen / convert_to_quant / ComfyUI.

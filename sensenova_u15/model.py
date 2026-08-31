@@ -248,7 +248,11 @@ class Attention(nn.Module):
             key,
             value,
             NUM_HEADS,
-            mask=attention_mask,
+            # PyTorch SDPA can return finite but numerically incorrect results
+            # when the prefix mask stays FP32 while Q/K/V are BF16.  Match the
+            # mask to the projected query before dispatching to ComfyUI's
+            # selected attention backend (upstream T8mars PR #5 / v1.3.7).
+            mask=attention_mask.to(query.dtype),
             skip_reshape=True,
             transformer_options=transformer_options,
             enable_gqa=True,
