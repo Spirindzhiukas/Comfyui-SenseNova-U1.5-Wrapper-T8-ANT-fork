@@ -36,7 +36,6 @@ class ModelStructureTests(unittest.TestCase):
             self.assertEqual(tuple(tensor.shape), expected[name], name)
 
     def test_prefix_attention_mask_matches_query_dtype(self):
-        """Keep upstream's SDPA fix while exercising this fork's RoPE options."""
         query = torch.empty(1, 32, 3, 128, dtype=torch.bfloat16)
         key = torch.empty(1, 8, 3, 128, dtype=torch.bfloat16)
         value = torch.empty_like(key)
@@ -46,24 +45,21 @@ class ModelStructureTests(unittest.TestCase):
             captured.update(query=query, key=key, value=value, heads=heads, kwargs=kwargs)
             return torch.empty(1, 3, 4096, dtype=torch.bfloat16)
 
-        def project(hidden_states, indexes, generation, transformer_options):
-            captured["project_transformer_options"] = transformer_options
-            return query, key, value
-
-        attention = SimpleNamespace(_project=project, o_proj=lambda output: output)
-        transformer_options = {"sensenova_rope_theta_t": 6_000_000.0}
+        attention = SimpleNamespace(
+            _project=lambda hidden_states, indexes, generation: (query, key, value),
+            o_proj=lambda output: output,
+        )
         with patch.object(sensenova_model, "optimized_attention", optimized_attention):
             output, _, _ = sensenova_model.Attention.forward_prefix(
                 attention,
                 torch.empty(1, 3, 4096, dtype=torch.bfloat16),
                 torch.empty(3, 1, 3),
                 torch.zeros(1, 1, 3, 3, dtype=torch.float32),
-                transformer_options,
+                {},
             )
 
         self.assertEqual(tuple(output.shape), (1, 3, 4096))
         self.assertIs(captured["kwargs"]["mask"].dtype, torch.bfloat16)
-        self.assertIs(captured["project_transformer_options"], transformer_options)
 
 
 if __name__ == "__main__":

@@ -32,11 +32,6 @@ What this fork adds or changes on top of those two codebases:
 - **ConvRot quantized checkpoints (ported from Milor123)** — INT8 (about 17.6 GB),
   ConvRot W4A4 and asymmetric W4A8 (about 13.8 GB), including per-layer mixes, as
   an *optional* path that never changes bf16 behaviour.
-- **Transitional RoPE hook readiness** — the three per-axis RoPE bases can be
-  overridden through `transformer_options` and are cache-safe across normal,
-  thinking and interleave paths. The intended loader-agnostic RoPE Lab MODEL
-  patch replacement is specified in
-  [`docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md).
 - **Conversion tooling** in `tools/` and a maintenance contract in
   [`memory.md`](memory.md).
 
@@ -729,9 +724,8 @@ Milor123's on all 1116 tensors for the `final_legacy` profile.
 | Measured INT8 ConvRot capability probe instead of a version or signature check | `sensenova_u15/quant_bridge.py::kitchen_honours_int8_convrot` | comfy-kitchen 0.2.28 and 0.2.31 both *accept* `convrot`, only 0.2.31 applies it; an ignored flag is again a silent wrong-basis image |
 | Capability-aware bridge and lazy guard installation | `quant_bridge_needed` / `core_supports_convrot`; `qt_guards` installed from `get_model` instead of at package import | modern ComfyUI keeps its own kernels, and bf16 sessions never pay for quant hooks |
 | `--variant auto` in the metadata injector | `tools/inject_sensenova_metadata.py::detect_variant` | Milor123's published quants come from the legacy Final and must stay `final_legacy`, or the non-quantized tensors fail their dtype check |
-| Per-axis RoPE bases readable through `transformer_options` and included in the prefix-cache key | `sensenova_u15/model.py::resolve_rope_thetas` | preparation for ANT RoPE Lab context-scaling experiments ([`docs/rope_lab_integration.md`](docs/rope_lab_integration.md)) |
 | Windows path cleanups in the ported tools | `tools/convert_sensenova_int4_convrot.py`, `tools/make_hybrid_ladder.py` | the originals carried hard-coded paths |
-| Fork tests, maintenance contract and research docs | `tests/test_fork_quant_checkpoint.py`, `tests/test_fork_tokenizer_assets.py`, `tests/test_fork_rope_theta.py`, `memory.md`, `docs/*` | regression tripwires for the silent-failure modes above |
+| Fork tests, maintenance contract and technical docs | `tests/test_fork_quant_checkpoint.py`, `tests/test_fork_tokenizer_assets.py`, `memory.md`, `docs/*` | regression tripwires for the silent-failure modes above |
 
 ### Also credited
 

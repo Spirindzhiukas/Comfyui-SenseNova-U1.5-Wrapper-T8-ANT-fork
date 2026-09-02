@@ -26,7 +26,7 @@ Upstream's 1.5.2 implementation is the base for model, conditioning, text encodi
 2. ConvRot operation selection is added only inside `SenseNovaModelConfig.get_model` and only when quantization sidecars are detected.
 3. Upstream's `language_model.lm_head.weight` is retained. The old fork behavior that removed it was deliberately not carried forward because thinking and interleave require it.
 4. English labels/defaults are reapplied after taking upstream node changes.
-5. The existing RoPE option keys are threaded through the new prefix, autoregressive decode, image-feedback and diffusion-generation paths. Their cache identity is retained during the transition to an external RoPE Lab patcher.
+5. The upstream model paths are retained for prefix encoding, autoregressive decode, image feedback, and diffusion generation. A short-lived experimental theta compatibility bridge was removed in fork release 1.6.1 because it had no repository consumer.
 
 ## New upstream functionality
 
@@ -78,15 +78,13 @@ GGUF does not contain ComfyUI quant sidecars, so it does not activate the ConvRo
 - User-visible custom-node strings and shipped custom workflows remain English.
 - The two native workflows now match merged ComfyUI core node names.
 
-### Transitional RoPE hook
+### RoPE and prefix cache
 
-The fork's three option keys remain functional over the expanded upstream model:
-
-- `sensenova_rope_theta_t`
-- `sensenova_rope_theta_hw`
-- `sensenova_rope_theta_vision`
-
-They cover normal prefix encoding, thinking token decode, interleave image feedback, reference vision embedding and diffusion image embedding. Active values remain part of the prefix cache identity. The intended extraction into RoPE Lab is specified in [`ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](ROPE_LAB_MODELPATCH_ARCHITECTURE.md).
+The upstream pure-PyTorch RoPE implementation covers normal prefix encoding,
+thinking-token decode, interleave image feedback, reference vision embedding, and
+diffusion image embedding. The independent prefix cache remains enabled for KV
+reuse. Fork release 1.6.1 removed the unused experimental theta compatibility
+bridge and its extra cache-identity fields without changing either behavior.
 
 ## Files adopted from upstream
 

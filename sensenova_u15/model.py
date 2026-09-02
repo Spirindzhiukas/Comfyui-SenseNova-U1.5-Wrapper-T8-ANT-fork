@@ -26,39 +26,6 @@ EOS_TOKEN_ID = 151645
 THINK_END_TOKEN_ID = 151668
 THINK_SUFFIX_TOKEN_IDS = (271, 151670)
 
-# Fork-only compatibility hook for ANT RoPE Lab. Keep this small and isolated:
-# docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md describes moving the policy into a
-# loader-agnostic MODEL patch node while retaining these keys during migration.
-ROPE_THETA_TIME = 5_000_000.0
-ROPE_THETA_SPATIAL = 10_000.0
-ROPE_THETA_VISION = 10_000.0
-ROPE_THETA_OPTIONS = (
-    "sensenova_rope_theta_t",
-    "sensenova_rope_theta_hw",
-    "sensenova_rope_theta_vision",
-)
-
-
-def resolve_rope_thetas(transformer_options=None):
-    """Return validated (time, spatial, vision) bases for this forward pass."""
-    options = transformer_options or {}
-    thetas = []
-    defaults = (ROPE_THETA_TIME, ROPE_THETA_SPATIAL, ROPE_THETA_VISION)
-    for key, default in zip(ROPE_THETA_OPTIONS, defaults):
-        value = options.get(key, default)
-        try:
-            value = float(value)
-        except (TypeError, ValueError):
-            raise ValueError(
-                f"SenseNova RoPE theta '{key}' must be a number, got {value!r}"
-            )
-        if not math.isfinite(value) or value <= 0.0:
-            raise ValueError(
-                f"SenseNova RoPE theta '{key}' must be positive and finite, got {value!r}"
-            )
-        thetas.append(value)
-    return tuple(thetas)
-
 
 def _pad_to_merged_patch_size(value):
     height, width = value.shape[-2:]
@@ -166,20 +133,15 @@ class VisionEmbeddings(nn.Module):
         self.dense_embedding = operations.Conv2d(1024, HIDDEN_SIZE, kernel_size=2, stride=2, device=device, dtype=dtype)
         self.gelu = nn.GELU()
 
-    def forward(self, image, transformer_options=None):
-        _, _, rope_theta_vision = resolve_rope_thetas(transformer_options)
+    def forward(self, image):
         patches = self.gelu(self.patch_embedding(image))
         batch, channels, height, width = patches.shape
         patches = patches.flatten(2).transpose(1, 2)
         indexes = torch.arange(height * width, device=patches.device)
         x_positions = indexes % width
         y_positions = indexes // width
-        first = _apply_interleaved_rope(
-            patches[..., : channels // 2], x_positions, rope_theta_vision
-        )
-        second = _apply_interleaved_rope(
-            patches[..., channels // 2 :], y_positions, rope_theta_vision
-        )
+        first = _apply_interleaved_rope(patches[..., : channels // 2], x_positions, 10000.0)
+        second = _apply_interleaved_rope(patches[..., channels // 2 :], y_positions, 10000.0)
         patches = torch.cat((first, second), dim=-1).to(image.dtype)
         patches = patches.transpose(1, 2).reshape(batch, channels, height, width)
         patches = self.dense_embedding(patches)
@@ -191,8 +153,8 @@ class VisionModel(nn.Module):
         super().__init__()
         self.embeddings = VisionEmbeddings(device=device, dtype=dtype, operations=operations)
 
-    def forward(self, image, transformer_options=None):
-        return self.embeddings(image, transformer_options=transformer_options)
+    def forward(self, image):
+        return self.embeddings(image)
 
 
 class MLP(nn.Module):
@@ -227,7 +189,7 @@ class Attention(nn.Module):
         self.k_norm_hw = operations.RMSNorm(HEAD_DIM // 2, eps=1e-6, device=device, dtype=dtype)
         self.k_norm_hw_mot_gen = operations.RMSNorm(HEAD_DIM // 2, eps=1e-6, device=device, dtype=dtype)
 
-    def _project(self, hidden_states, indexes, generation, transformer_options=None):
+    def _project(self, hidden_states, indexes, generation):
         batch, length, _ = hidden_states.shape
         if generation:
             query = self.q_proj_mot_gen(hidden_states).view(batch, length, NUM_HEADS, HEAD_DIM)
@@ -252,18 +214,15 @@ class Attention(nn.Module):
 
         query_h, query_w = query_hw.chunk(2, dim=-1)
         key_h, key_w = key_hw.chunk(2, dim=-1)
-        rope_theta_time, rope_theta_spatial, _ = resolve_rope_thetas(transformer_options)
-        query_t, key_t = _apply_llm_rope(query_t, key_t, indexes[0], rope_theta_time)
-        query_h, key_h = _apply_llm_rope(query_h, key_h, indexes[1], rope_theta_spatial)
-        query_w, key_w = _apply_llm_rope(query_w, key_w, indexes[2], rope_theta_spatial)
+        query_t, key_t = _apply_llm_rope(query_t, key_t, indexes[0], 5000000.0)
+        query_h, key_h = _apply_llm_rope(query_h, key_h, indexes[1], 10000.0)
+        query_w, key_w = _apply_llm_rope(query_w, key_w, indexes[2], 10000.0)
         query = torch.cat((query_t, query_h, query_w), dim=-1)
         key = torch.cat((key_t, key_h, key_w), dim=-1)
         return query, key, value
 
     def forward_prefix(self, hidden_states, indexes, attention_mask, transformer_options):
-        query, key, value = self._project(
-            hidden_states, indexes, False, transformer_options
-        )
+        query, key, value = self._project(hidden_states, indexes, False)
         output = optimized_attention(
             query,
             key,
@@ -277,9 +236,7 @@ class Attention(nn.Module):
         return self.o_proj(output), key, value
 
     def forward_generation(self, hidden_states, indexes, prefix_key, prefix_value, transformer_options):
-        query, key, value = self._project(
-            hidden_states, indexes, True, transformer_options
-        )
+        query, key, value = self._project(hidden_states, indexes, True)
         key = torch.cat((prefix_key, key), dim=2)
         value = torch.cat((prefix_value, value), dim=2)
         output = optimized_attention(
@@ -303,9 +260,7 @@ class Attention(nn.Module):
         transformer_options,
         attention_mask=None,
     ):
-        query, key, value = self._project(
-            hidden_states, indexes, False, transformer_options
-        )
+        query, key, value = self._project(hidden_states, indexes, False)
         key = torch.cat((prefix_key, key), dim=2)
         value = torch.cat((prefix_value, value), dim=2)
         output = optimized_attention(
@@ -448,21 +403,11 @@ class SenseNovaU15(nn.Module):
             ),
         ).execute(x, timesteps, context, transformer_options, **kwargs)
 
-    def _prepare_prefix(
-        self,
-        text_input_ids,
-        reference_images,
-        prefix_indexes,
-        prefix_mask,
-        transformer_options=None,
-    ):
+    def _prepare_prefix(self, text_input_ids, reference_images, prefix_indexes, prefix_mask):
         prefix = self.language_model.model.embed_tokens(text_input_ids)
         if reference_images:
             reference_embeds = [
-                self.vision_model(
-                    _pad_to_merged_patch_size(reference),
-                    transformer_options=transformer_options,
-                )
+                self.vision_model(_pad_to_merged_patch_size(reference))
                 for reference in reference_images
             ]
             selected = text_input_ids == 151669
@@ -502,11 +447,7 @@ class SenseNovaU15(nn.Module):
         transformer_options=None,
     ):
         prefix, prefix_indexes, prefix_mask, prefix_time = self._prepare_prefix(
-            text_input_ids,
-            reference_images,
-            prefix_indexes,
-            prefix_mask,
-            transformer_options,
+            text_input_ids, reference_images, prefix_indexes, prefix_mask
         )
         prefix_keys = []
         prefix_values = []
@@ -586,7 +527,7 @@ class SenseNovaU15(nn.Module):
         mean = image.new_tensor((0.485, 0.456, 0.406)).view(1, 3, 1, 1)
         std = image.new_tensor((0.229, 0.224, 0.225)).view(1, 3, 1, 1)
         image = _pad_to_merged_patch_size((image - mean) / std)
-        image_embeds = self.vision_model(image, transformer_options=transformer_options)
+        image_embeds = self.vision_model(image)
         batch, image_length, _ = image_embeds.shape
         image_end = torch.full((batch, 1), 151671, dtype=torch.long, device=image.device)
         hidden_states = torch.cat(
@@ -779,9 +720,7 @@ class SenseNovaU15(nn.Module):
         token_width = width // MERGED_PATCH_SIZE
         image_length = token_height * token_width
 
-        image = self.fm_modules["vision_model_mot_gen"](
-            x, transformer_options=transformer_options
-        )
+        image = self.fm_modules["vision_model_mot_gen"](x)
         expanded_timesteps = timesteps[:, None].expand(batch, image_length).reshape(-1)
         time_embedding = self.fm_modules["timestep_embedder"](expanded_timesteps, image.dtype)
         noise_scale = resolution_noise_scale(height, width) / 16.0
@@ -789,7 +728,6 @@ class SenseNovaU15(nn.Module):
         time_embedding = time_embedding + self.fm_modules["noise_scale_embedder"](scale_timesteps, image.dtype)
         image = image + time_embedding.view(batch, image_length, HIDDEN_SIZE)
 
-        rope_thetas = resolve_rope_thetas(transformer_options)
         cache = transformer_options.get("sensenova_prefix_cache")
         uuids = transformer_options.get("uuids")
         cache_key = None
@@ -806,7 +744,6 @@ class SenseNovaU15(nn.Module):
                 x.device.index,
                 bool(sensenova_thinking),
                 int(sensenova_max_think_tokens) if sensenova_thinking else 0,
-                rope_thetas,
             )
             cached_prefix = cache.get(cache_key)
             if cached_prefix is not None:
@@ -845,11 +782,7 @@ class SenseNovaU15(nn.Module):
                     cache[cache_key] = (prefix_keys, prefix_values, prefix_time)
             else:
                 prefix, prefix_indexes, prefix_mask, prefix_time = self._prepare_prefix(
-                    text_input_ids,
-                    reference_images,
-                    prefix_indexes,
-                    prefix_mask,
-                    transformer_options,
+                    text_input_ids, reference_images, prefix_indexes, prefix_mask
                 )
 
         image_time = prefix_time.repeat_interleave(generation_batch)

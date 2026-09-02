@@ -24,9 +24,6 @@
   的克隆不再报 `tokenizer asset digest mismatch`。
 - ConvRot 量化权重（可选）：INT8（约 17.6 GB）、ConvRot W4A4、非对称 W4A8
   （约 13.8 GB）以及按层混合，官方 BF16 加载路径保持不变。
-- 过渡期内 RoPE 三条基频仍可由 `transformer_options` 覆盖；后续将由 RoPE Lab 的
-  loader-agnostic MODEL patch node 接管，架构与跨自定义 Loader/core 的测试要求见
-  [`docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md)。
 - `tools/` 下附带量化转换脚本。
 
 这是 SenseNova-U1.5 的 ComfyUI 原生节点。模型、采样器、调度器、显存卸载和工作流都走 ComfyUI 管道，支持：

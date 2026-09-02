@@ -2,13 +2,12 @@
 
 Repository: `Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork`
 Base: `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` (started at **1.3.6**; features synchronized through **1.5.2**)
-Self-version: `1.6.0` (see `CHANGELOG.md`)
-Contract this file implements: `docs/THE_TASK.md`
+Self-version: `1.6.1` (see `CHANGELOG.md`)
 Quant source: `Milor123/ComfyUI-SenseNova-U1.5-ConvRot` @ `7e1e320` (v1.3.1 base)
 
 This fork is an *amalgamation*: T8mars' clean base + Milor123's ConvRot int8 /
-W4A4 / W4A8 support + the tokenizer-CRLF and English-UI fixes + the MERD / RoPE
-Lab research. It must stay mergeable with upstream.
+W4A4 / W4A8 support + the tokenizer-CRLF and English-UI fixes. It must stay
+mergeable with upstream.
 
 ---
 
@@ -165,56 +164,27 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 
 ## 5. Versioning
 
-- This fork keeps its own monotonic `1.4.x` line after the original feature drop
-  (`1.3.6` → `1.4.0`). Do not downgrade it to a later upstream `1.3.x` release;
-  increment the fork patch version and document which upstream fixes were synced.
+- This fork keeps its own monotonic release line after the original feature drop.
+  Do not downgrade it to a later upstream version; increment the fork version and
+  document which upstream fixes were synchronized.
 - `tests/test_metadata.py` pins the version string; update it together with
   `pyproject.toml`.
 - `CHANGELOG.md` keeps its Chinese body and adds an English block per fork release.
 - Keep `node_list.json` in sync with the V3 node ids (ComfyUI-Manager uses it).
 
-## 6. RoPE / RoPE Lab Integration Notes
-
-- SenseNova-U1.5 uses 3D M-RoPE: `axes_dim [64, 32, 32]` (pairs 32/16/16),
-  `per_axis_theta [5e6, 1e4, 1e4]`, axis identity `t,h,w`, spatial axes `[1, 2]`,
-  temporal axis `0`, concat order `t_h_w`, base patch grid `64 x 64` at
-  2048 px (`MERGED_PATCH_SIZE = 32`), split-half `cos/sin` for the LLM path and
-  interleaved 4D-value/6D-rotation `apply_rope1` for vision;
-  `uses_qk_norm = true`, block-causal prefix mask `true`.
-- `dype_output_format` is `mrope_interleaved`, which makes RoPE Lab abort
-  (Ideogram4 branch). The patching strategy must be a new `sensenova_mot_hook`
-  (`core/method_hook.py`), not `embedder_replacement`.
-- The fork already removed the main obstacle: the three bases are read through
-  `resolve_rope_thetas(transformer_options)` from
-  `sensenova_rope_theta_t / _hw / _vision`, so a Lab wrapper only has to set
-  `transformer_options` — no monkey-patching of `model.py`.
-- Never break `transformer_options["sensenova_prefix_cache"]`: dynamic methods
-  change thetas per timestep, and the theta tuple is part of the cache key, so a
-  changed scale correctly misses the cached prefix KV. Do not "optimise" that key.
-- The direct theta plumbing is now transitional. Move policy into the separately
-  maintained RoPE Lab using the loader-agnostic MODEL patch architecture in
-  `docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`; remove it here only after that
-  project's custom-wrapper and native-core compatibility matrix passes.
-- Frozen imports a hook must handle: `optimized_attention`, `pad_to_patch_size`,
-  `apply_rope1` (they are imported into `sensenova_u15.model`'s namespace, so a
-  `sys.modules` walk or patching `sensenova_u15.model.<name>` is required).
-- See `docs/rope_lab_integration.md` for the MERD fields, dype math and the
-  Phase 0-6 roadmap.
-
-## 7. Provenance
+## 6. Provenance
 
 | Change | Where | Came from |
 | --- | --- | --- |
 | CRLF-tolerant tokenizer digest | `sensenova_u15/loader.py::_tokenizer_digest_kind`, `_validate_tokenizer_assets` | this fork, `docs/FIX_REPORT.md`; verified with `sha256sum` LF `6497591f…` vs CRLF `9a7324…` |
 | `.gitattributes` LF pin | `.gitattributes` | this fork (upstream had one line for the contract) |
-| English labels / defaults | `nodes.py::_reference_image_inputs`, `SenseNovaStructuredEditPrompt` | this fork, task §2.2 |
+| English labels / defaults | `nodes.py::_reference_image_inputs`, `SenseNovaStructuredEditPrompt` | this fork |
 | English frontend label | `web/sensenova_reference_labels_v131e.js::referenceLabel` | this fork (this JS overrides the Python label at runtime) |
 | English prompt sections | `sensenova_u15/guidance.py::build_structured_edit_prompt` | this fork; Chinese kept in the docstring |
 | Pure-PyTorch split-half RoPE + 6D vision rotation | `sensenova_u15/model.py::_apply_llm_rope`, `_apply_interleaved_rope` | upstream `T8mars` commit `73657001` (1.3.4); verified, not re-applied |
-| Prefix attention mask cast to query dtype | `sensenova_u15/model.py::Attention.forward_prefix` | upstream T8mars PR #5 / commit `8f322794` (released in 1.3.7); test adapted to preserve this fork's `transformer_options` argument |
+| Prefix attention mask cast to query dtype | `sensenova_u15/model.py::Attention.forward_prefix` | upstream T8mars PR #5 / commit `8f322794` (released in 1.3.7) |
 | Upstream 1.3.7 sync audit | `docs/UPSTREAM_SYNC_1.3.7.md` | this fork, 2026-08-31; covers upstream PRs #5 and #6 and retained invariants |
 | Upstream 1.5.2 sync audit | `docs/UPSTREAM_SYNC_1.5.2.md` | this fork, 2026-09-03; covers upstream PRs #7–#12, GGUF, thinking/interleave and retained invariants |
-| Loader-agnostic RoPE patch handoff | `docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md` | this fork, 2026-09-03; implementation belongs in the separately maintained RoPE Lab project |
 | Quant header contract | `sensenova_u15/loader.py` (`QUANT_*`, `_read_quant_formats`, `_quant_checkpoint_contract`, `_validate_quant_header`) | adapted from Milor123 `sensenova_u15/loader.py` + `checkpoint_contract.py`, rebuilt on T8's JSON contract |
 | Quant ops wiring (`quant_config`, post-load invariant) | `sensenova_u15/loader.py::detect_quant_config`, `_validate_quantized_weights_loaded` | this fork, 2026-08-27, after the int8 checkerboard report; mirrors `comfy.sd.load_diffusion_model` + `comfy.model_detection` |
 | INT8 convrot capability probe (measured, not versioned) | `sensenova_u15/quant_bridge.py::kitchen_honours_int8_convrot` | this fork, 2026-08-27; reference maths cross-checked against comfy-kitchen v0.2.31 `backends/cuda/__init__.py::int8_linear` + `backends/eager/quantization.py` |
@@ -225,7 +195,6 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 | ops hook for quantized loads | `sensenova_u15/model_config.py::get_model` | Milor123's `model_config.py` hook, made capability-aware |
 | Converters | `tools/convert_sensenova_int4_convrot.py`, `tools/make_hybrid_ladder.py` | Milor123 @ `7e1e320` (hard-coded Windows paths removed) |
 | Metadata tagger | `tools/inject_sensenova_metadata.py` | Milor123's tool, re-pinned to the 1.3.6 revisions (`final`, `final_legacy`, `sft`) |
-| RoPE theta plumbing | `sensenova_u15/model.py::resolve_rope_thetas` + call sites | this fork, from `docs/SenseNova_MERD_and_RoPE_Lab_integration_research.md` §9.3 |
-| Tests | `tests/test_fork_quant_checkpoint.py`, `tests/test_fork_tokenizer_assets.py`, `tests/test_fork_rope_theta.py` | this fork |
+| Tests | `tests/test_fork_quant_checkpoint.py`, `tests/test_fork_tokenizer_assets.py` | this fork |
 
 Keep this table updated with commit hashes whenever a fix moves.

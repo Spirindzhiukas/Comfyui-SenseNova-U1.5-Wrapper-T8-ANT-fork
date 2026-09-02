@@ -56,7 +56,7 @@ PR #6 contains release bookkeeping only:
 - `pyproject.toml` version 1.3.6 → 1.3.7;
 - the corresponding upstream metadata-test expectation.
 
-This fork was already at 1.4.2. Applying the upstream version literally would be a version regression and would misrepresent the additional ConvRot, CRLF, English-UI, and RoPE-option work. The release intent was therefore preserved by:
+This fork was already at 1.4.2. Applying the upstream version literally would be a version regression and would misrepresent the additional ConvRot, CRLF, and English-UI work. The release intent was therefore preserved by:
 
 - advancing this fork to **1.4.3**;
 - updating its metadata regression test to 1.4.3;
@@ -71,7 +71,7 @@ The synchronization was reviewed against `memory.md`. The following behavior rem
 
 1. **ConvRot quantization** — format detection, derived checkpoint contracts, `quant_config` wiring, capability probing, bridge operations, cast guards, and post-load invariants are unchanged.
 2. **Blackwell-safe RoPE** — split-half RoPE remains pure PyTorch; no `comfy.quant_ops` or `apply_rope_split_half` call was reintroduced.
-3. **RoPE Lab readiness** — `transformer_options` still reaches `_project`, per-axis theta resolution, and the prefix-cache key.
+3. **Prefix-cache behavior** — normal conditioning cache reuse remains intact; the experimental theta compatibility bridge present at the time of this synchronization was removed in fork release 1.6.1.
 4. **CRLF-safe assets** — tokenizer digest normalization/warning behavior and LF attributes are unchanged.
 5. **English UI and docs** — translated node labels, prompts, workflows, frontend extension, and English-first README layout are unchanged.
 6. **Checkpoint validation** — the bundled 1116-tensor JSON contract and its digest pin are unchanged.

@@ -37,7 +37,6 @@ Changes made by this fork (Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-
 - Measured comfy-kitchen INT8 convrot capability probe instead of a version check
 - Capability-aware ConvRot bridge and lazy installation of the cast guards
 - --variant auto in the metadata injector; Windows path cleanups in the tools
-- Per-axis RoPE thetas exposed through transformer_options (ANT RoPE Lab work)
 - See memory.md and the "Credits and provenance" section of README.md.
 
 Third-party methods and runtimes used through their public interfaces:
