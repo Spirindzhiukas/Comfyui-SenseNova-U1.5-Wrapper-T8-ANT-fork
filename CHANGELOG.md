@@ -2,6 +2,22 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
+## [1.6.0] - 2026-09-03
+
+- 同步 T8mars 上游 `1.3.8`～`1.5.2`（PR #7～#12）：采用已合并 ComfyUI core PR #15922 的原生工作流节点，新增严格校验的 Q2_K / Q3_K_M / Q5_K_M / Q6_K / Q8_0 GGUF Loader、Thinking 生图、文本/图像交错生成、KV 回填与顺序化预览，并包含 ComfyUI 0.33 预览兼容及编号图片定位修复。
+- 保留本分支的 ConvRot INT8/W4A4/W4A8 检测、严格派生 contract、量化 ops/guard、实测 comfy-kitchen 能力回退、CRLF tokenizer 容错、全英文 UI 与工作流。
+- 将新的 `language_model.lm_head.weight` 模型结构与 Thinking/Interleave 路径作为上游基座，量化操作只在存在 `*.comfy_quant` 侧车时叠加；GGUF 和 BF16 不会导入 ConvRot bridge。
+- 暂时保留三轴 RoPE `transformer_options` 兼容键并扩展至 Thinking/Interleave 的 prefix、decode、vision 与 cache 路径；同时新增 [`docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md)，规划把策略迁移到 RoPE Lab 的 loader-agnostic MODEL patch node。
+- 完整合并审计见 [`docs/UPSTREAM_SYNC_1.5.2.md`](docs/UPSTREAM_SYNC_1.5.2.md)。
+
+### English
+
+- Synchronized T8mars upstream 1.3.8 through 1.5.2 (PRs #7–#12): native workflows for merged ComfyUI core PR #15922, strictly validated Q2_K/Q3_K_M/Q5_K_M/Q6_K/Q8_0 GGUF loading, thinking generation, interleaved text/image generation with KV feedback, ordered previews, ComfyUI 0.33 preview compatibility, and numbered-image placement fixes.
+- Preserved this fork's ConvRot INT8/W4A4/W4A8 detection, derived contracts, quantized operations and guards, measured comfy-kitchen fallback, CRLF-safe tokenizer handling, and English UI/workflows.
+- Adopted upstream's LM-head thinking/interleave model as the base and layers quantized operations only when `*.comfy_quant` sidecars exist; BF16 and GGUF do not import the ConvRot bridge.
+- Temporarily retained the three RoPE `transformer_options` keys across prefix, decode, vision and cache paths, while documenting a loader-agnostic RoPE Lab MODEL patch migration in [`docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md).
+- Full merge audit: [`docs/UPSTREAM_SYNC_1.5.2.md`](docs/UPSTREAM_SYNC_1.5.2.md).
+
 ## [1.4.3] - 2026-08-31
 
 - 调查并集成 T8mars 上游 PR [#5](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/5)：prefix attention mask 在调用 ComfyUI attention 后端前转换为 query dtype，避免 PyTorch SDPA 在 FP32 mask 配合 BF16 Q/K/V 时产生有限但数值错误的输出；新增回归测试。

@@ -1,10 +1,10 @@
 [project]
 name = "sensenova-u15-t8"
-version = "1.4.3"
-description = "Native ComfyUI nodes for SenseNova-U1.5 text-to-image generation and multi-reference image editing."
+version = "1.6.0"
+description = "Extended native ComfyUI nodes for SenseNova-U1.5, including ConvRot, GGUF, thinking, interleaved output, and multi-reference editing."
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-dependencies = []
+dependencies = ["gguf>=0.13.0"]
 classifiers = [
     "Operating System :: OS Independent",
     "Environment :: GPU :: NVIDIA CUDA",

@@ -17,11 +17,15 @@ class ExampleWorkflowTests(unittest.TestCase):
             "core_edit_workflow.json",
             "core_t2i_workflow.json",
             "edit_workflow.json",
+            "gguf_edit_workflow.json",
+            "gguf_t2i_workflow.json",
+            "interleave_workflow.json",
             "multi_reference_edit_workflow.json",
             "sft_edit_workflow.json",
             "sft_t2i_workflow.json",
             "t2i_8step_workflow.json",
             "t2i_workflow.json",
+            "thinking_t2i_workflow.json",
         ])
         for path in examples:
             workflow = json.loads(path.read_text(encoding="utf-8"))
@@ -38,9 +42,13 @@ class ExampleWorkflowTests(unittest.TestCase):
             "t2i_workflow.json",
             "t2i_8step_workflow.json",
             "edit_workflow.json",
+            "gguf_edit_workflow.json",
+            "gguf_t2i_workflow.json",
+            "interleave_workflow.json",
             "multi_reference_edit_workflow.json",
             "sft_t2i_workflow.json",
             "sft_edit_workflow.json",
+            "thinking_t2i_workflow.json",
         ):
             workflow = self.load_example(name)
             nodes = {node["id"]: node for node in workflow["nodes"]}
@@ -58,15 +66,16 @@ class ExampleWorkflowTests(unittest.TestCase):
             workflow = self.load_example(name)
             loader = next(node for node in workflow["nodes"] if node["type"] == "CheckpointLoaderSimple")
             options = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaSamplingOptions")
-            latent = next(node for node in workflow["nodes"] if node["type"] == "EmptySenseNovaLatentImage")
+            latent = next(node for node in workflow["nodes"] if node["type"] == "EmptyHiDreamO1LatentImage")
             with self.subTest(name=name):
                 self.assertEqual(loader["widgets_values"], ["SenseNova-U1.5-8B-MoT-BF16-T8.safetensors"])
                 self.assertEqual(options["widgets_values"], [3])
                 self.assertEqual(latent["widgets_values"], [1024, 1024, 1])
 
         edit = self.load_example("core_edit_workflow.json")
-        reference = next(node for node in edit["nodes"] if node["type"] == "SenseNovaReferenceImages")
+        reference = next(node for node in edit["nodes"] if node["type"] == "HiDreamO1ReferenceImages")
         self.assertEqual([value["name"] for value in reference["inputs"]], ["positive", "negative", "image_1"])
+        self.assertEqual([value["name"] for value in reference["outputs"]], ["positive", "negative"])
 
     def test_frontend_t2i_uses_official_defaults(self):
         workflow = self.load_example("t2i_workflow.json")
@@ -74,6 +83,32 @@ class ExampleWorkflowTests(unittest.TestCase):
         sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
         self.assertEqual(loader["widgets_values"], ["SenseNova-U1.5-8B-MoT-BF16-T8.safetensors"])
         self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
+
+    def test_thinking_and_interleave_examples_use_new_protocol_nodes(self):
+        thinking = self.load_example("thinking_t2i_workflow.json")
+        encoders = [node for node in thinking["nodes"] if node["type"] == "SenseNovaTextEncode"]
+        self.assertEqual(encoders[0]["widgets_values"][1:], ["image", True, 512])
+        self.assertEqual(encoders[1]["widgets_values"][1:], ["image", False, 64])
+        self.assertTrue(any(node["type"] == "SenseNovaThinkingPreview" for node in thinking["nodes"]))
+
+        interleave = self.load_example("interleave_workflow.json")
+        encoders = [node for node in interleave["nodes"] if node["type"] == "SenseNovaTextEncode"]
+        self.assertEqual([node["widgets_values"][1] for node in encoders], ["interleave", "interleave"])
+        generator = next(node for node in interleave["nodes"] if node["type"] == "SenseNovaInterleave")
+        preview = next(node for node in interleave["nodes"] if node["type"] == "SenseNovaInterleavePreview")
+        self.assertEqual(generator["widgets_values"][-2:], [1024, 4])
+        self.assertEqual(preview["widgets_values"], [False])
+
+    def test_gguf_examples_use_verified_q3_loader_and_native_pipeline(self):
+        for name in ("gguf_t2i_workflow.json", "gguf_edit_workflow.json"):
+            workflow = self.load_example(name)
+            loader = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaU15GGUFLoader")
+            sampler = next(node for node in workflow["nodes"] if node["type"] == "KSampler")
+            options = next(node for node in workflow["nodes"] if node["type"] == "SenseNovaSamplingOptions")
+            with self.subTest(name=name):
+                self.assertEqual(loader["widgets_values"], ["SenseNova-U1.5-8B-MoT-Q3_K_M.gguf"])
+                self.assertEqual(sampler["widgets_values"][2:], [50, 4, "euler", "normal", 1])
+                self.assertEqual(options["widgets_values"], [3])
 
     def test_batch_t2i_generates_two_variants_at_a_safe_example_resolution(self):
         workflow = self.load_example("batch_t2i_workflow.json")
@@ -109,8 +144,6 @@ class ExampleWorkflowTests(unittest.TestCase):
         self.assertEqual(links[sampler["inputs"][0]["link"]][1:3], [3, 0])
 
     def test_frontend_edit_and_multi_reference_contracts(self):
-        # Slot labels and the demo edit prompt are English in this fork; the
-        # frontend extension rewrites the labels at runtime either way.
         edit = self.load_example("edit_workflow.json")
         edit_reference = next(node for node in edit["nodes"] if node["type"] == "SenseNovaReferenceImage")
         self.assertEqual([value["name"] for value in edit_reference["inputs"]], ["positive", "negative", "Image-1"])
@@ -120,14 +153,8 @@ class ExampleWorkflowTests(unittest.TestCase):
         multi = self.load_example("multi_reference_edit_workflow.json")
         multi_reference = next(node for node in multi["nodes"] if node["type"] == "SenseNovaReferenceImage")
         self.assertEqual([value["name"] for value in multi_reference["inputs"][-2:]], ["Image-1", "Image-2"])
-        self.assertEqual(
-            [value["localized_name"] for value in multi_reference["inputs"][-2:]],
-            ["Reference Image 1 (Image-1)", "Reference Image 2 (Image-2)"],
-        )
-        self.assertEqual(
-            [value["label"] for value in multi_reference["inputs"][-2:]],
-            ["Reference Image 1 (Image-1)", "Reference Image 2 (Image-2)"],
-        )
+        self.assertEqual([value["localized_name"] for value in multi_reference["inputs"][-2:]], ["Reference Image 1 (Image-1)", "Reference Image 2 (Image-2)"])
+        self.assertEqual([value["label"] for value in multi_reference["inputs"][-2:]], ["Reference Image 1 (Image-1)", "Reference Image 2 (Image-2)"])
         guider = next(node for node in multi["nodes"] if node["type"] == "SenseNovaEditGuider")
         scheduler = next(node for node in multi["nodes"] if node["type"] == "BasicScheduler")
         self.assertEqual(guider["widgets_values"], [4, 1, "global", 0, 1])

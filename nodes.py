@@ -1,4 +1,6 @@
 import math
+import re
+from pathlib import Path
 
 from typing_extensions import override
 
@@ -7,12 +9,22 @@ import torch
 import comfy.model_management
 import comfy.model_patcher
 import comfy.patcher_extension
+import comfy.sample
 import comfy.samplers
+import comfy.utils
 import folder_paths
+import latent_preview
 import node_helpers
-from comfy_api.latest import ComfyExtension, io
+from comfy_api.latest import ComfyExtension, io, ui
 
 from .sensenova_u15.loader import load_pixel_vae, load_sensenova_clip, load_sensenova_model
+from .sensenova_u15.interleave import (
+    SenseNovaInterleaveSession,
+    build_interleave_result,
+    interleave_result_to_markdown,
+    live_conditioning,
+    prefix_arguments,
+)
 from .sensenova_u15.lora import apply_eight_step_lora
 from .sensenova_u15.guidance import (
     CFG_NORM_MODES,
@@ -21,6 +33,14 @@ from .sensenova_u15.guidance import (
     rescale_denoised_guidance,
 )
 from .sensenova_u15.sampling import SenseNovaModelSampling
+
+
+InterleaveResultIO = io.Custom("SENSENOVA_INTERLEAVE_RESULT")
+
+
+GGUF_MODEL_DIR = Path(folder_paths.models_dir) / "gguf"
+GGUF_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+folder_paths.folder_names_and_paths["sensenova_gguf"] = ([str(GGUF_MODEL_DIR)], {".gguf"})
 
 
 RESOLUTION_PRESETS = {
@@ -40,7 +60,10 @@ class SenseNovaU15Loader(io.ComfyNode):
             node_id="SenseNovaU15Loader",
             display_name="SenseNova U1.5 Loader (Final / SFT)",
             category="loaders/SenseNova",
-            description="Load a verified single-file SenseNova-U1.5 Final or SFT checkpoint, including ConvRot int8 / W4A4 / W4A8 conversions of them. Preview is rejected.",
+            description=(
+                "Load a verified single-file SenseNova-U1.5 Final or SFT checkpoint, "
+                "including supported ConvRot quantized conversions. Preview is rejected."
+            ),
             inputs=[
                 io.Combo.Input(
                     id="model_name",
@@ -55,6 +78,41 @@ class SenseNovaU15Loader(io.ComfyNode):
         model_path = folder_paths.get_full_path_or_raise("diffusion_models", model_name)
         clip = load_sensenova_clip()
         model = load_sensenova_model(model_path, torch.bfloat16)
+        return io.NodeOutput(model, clip, load_pixel_vae())
+
+
+class SenseNovaU15GGUFLoader(io.ComfyNode):
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaU15GGUFLoader",
+            display_name="SenseNova U1.5 GGUF Loader (Final)",
+            category="loaders/SenseNova",
+            description=(
+                "Load a verified Q2_K, Q3_K_M, Q5_K_M, Q6_K, or Q8_0 quantization of the "
+                "official SenseNova U1.5 Final model while keeping the native ComfyUI pipeline."
+            ),
+            inputs=[
+                io.Combo.Input(
+                    id="model_name",
+                    options=folder_paths.get_filename_list("sensenova_gguf"),
+                ),
+            ],
+            outputs=[io.Model.Output(), io.Clip.Output(), io.Vae.Output()],
+        )
+
+    @classmethod
+    def execute(cls, *, model_name):
+        try:
+            from .sensenova_u15.gguf_support import load_sensenova_gguf_model
+        except ImportError as error:
+            raise ImportError(
+                "SenseNova U1.5 GGUF support requires the Python package `gguf>=0.13.0`. "
+                "Reinstall or update this custom node through ComfyUI Manager."
+            ) from error
+        model_path = folder_paths.get_full_path_or_raise("sensenova_gguf", model_name)
+        clip = load_sensenova_clip()
+        model = load_sensenova_gguf_model(model_path, torch.bfloat16)
         return io.NodeOutput(model, clip, load_pixel_vae())
 
 
@@ -189,7 +247,11 @@ class SenseNovaReferenceImage(io.ComfyNode):
             node_id="SenseNovaReferenceImage",
             display_name="SenseNova Reference Image",
             category="conditioning/SenseNova",
-            description="Attach one or two source images for instruction editing. Use the 1-10 node for larger reference sets.",
+            description=(
+                "Attach one or two source images for instruction editing. Use the 1-10 node for "
+                "larger reference sets. When editing a SenseNova-generated image, choose a sampler "
+                "seed different from its generation seed."
+            ),
             inputs=[
                 io.Conditioning.Input(id="positive"),
                 io.Conditioning.Input(id="negative"),
@@ -242,7 +304,10 @@ class SenseNovaReferenceImageAdvanced(SenseNovaReferenceImage):
             node_id="SenseNovaReferenceImageAdvanced",
             display_name="SenseNova Reference Images (1-10)",
             category="conditioning/SenseNova",
-            description="Attach 1-10 source images for advanced multi-reference editing.",
+            description=(
+                "Attach 1-10 source images for advanced multi-reference editing. When editing a "
+                "SenseNova-generated image, choose a sampler seed different from its generation seed."
+            ),
             inputs=[
                 io.Conditioning.Input(id="positive"),
                 io.Conditioning.Input(id="negative"),
@@ -274,7 +339,7 @@ class SenseNovaStructuredEditPrompt(io.ComfyNode):
                     id="image_roles",
                     multiline=True,
                     # Original (upstream T8mars): 参考图作为主画面和待编辑对象。多图时请明确写 Image-1、Image-2 各自提供什么。
-                    default="Image-1 is the main image to edit. When using multiple references, state clearly what each of Image-1, Image-2 provides.",
+                    default="Image-1 is the main image to edit. When using multiple references, clearly state what each Image-1, Image-2 provides.",
                     tooltip="Assign a single clear role to each reference image. Image-1 is the first connected socket.",
                 ),
                 io.String.Input(
@@ -288,7 +353,7 @@ class SenseNovaStructuredEditPrompt(io.ComfyNode):
                     id="avoid",
                     multiline=True,
                     # Original (upstream T8mars): 不要增加无关主体，不要改变未指定区域，不要生成水印或乱码文字。
-                    default="Do not add unrelated subjects, do not alter unspecified areas, do not generate watermarks or garbled text.",
+                    default="Do not add unrelated subjects, do not alter unspecified areas, and do not generate watermarks or garbled text.",
                     tooltip="List unwanted transfers, extra subjects, text, or other failure modes.",
                 ),
             ],
@@ -432,11 +497,395 @@ class SenseNovaEditGuider(io.ComfyNode):
         return io.NodeOutput(guider)
 
 
+def interleave_output_samples(result, latent_samples):
+    """Return generated interleave images as a ComfyUI latent batch."""
+
+    if not result.images:
+        return latent_samples
+    return torch.cat(result.images).to(
+        device=comfy.model_management.intermediate_device(),
+        dtype=comfy.model_management.intermediate_dtype(),
+    )
+
+
+def run_interleave(
+    model,
+    clip,
+    positive,
+    negative,
+    noise_seed,
+    cfg,
+    sampler,
+    sigmas,
+    latent,
+    max_text_tokens,
+    max_images=1,
+):
+    """Run one SenseNova interleave session using standard ComfyUI sampling."""
+
+    latent = latent.copy()
+    latent_samples = comfy.sample.fix_empty_latent_channels(
+        model,
+        latent["samples"],
+        latent.get("downscale_ratio_spacial"),
+        latent.get("downscale_ratio_temporal"),
+    )
+    if latent_samples.shape[0] != 1:
+        raise ValueError("SenseNova interleave requires a single latent image.")
+    latent["samples"] = latent_samples
+
+    positive_data = positive[0][1]
+    negative_data = negative[0][1]
+    if not positive_data.get("sensenova_interleave") or not negative_data.get(
+        "sensenova_interleave"
+    ):
+        raise ValueError(
+            "SenseNova interleave requires positive and negative conditioning "
+            "encoded with mode=interleave."
+        )
+
+    comfy.model_management.load_models_gpu([model])
+    device = model.load_device
+    transformer_options = model.model_options.get("transformer_options", {}).copy()
+    model.pre_run()
+    try:
+        diffusion_model = model.model.diffusion_model
+        session = SenseNovaInterleaveSession(
+            diffusion_model,
+            positive_prefix=prefix_arguments(
+                positive_data, device, diffusion_model.dtype, image_only=False
+            ),
+            negative_prefix=prefix_arguments(
+                negative_data, device, diffusion_model.dtype, image_only=True
+            ),
+            decode_tokens=lambda values: clip.tokenizer.sensenova_u15.tokenizer.decode(
+                values, skip_special_tokens=True
+            ),
+            transformer_options=transformer_options,
+        )
+        image_index = 0
+
+        def sample_image(positive_prefix, negative_prefix):
+            nonlocal image_index
+            noise = comfy.sample.prepare_noise(latent_samples, noise_seed, [image_index])
+            callback = latent_preview.prepare_callback(model, sigmas.shape[-1] - 1, {})
+            samples = comfy.sample.sample_custom(
+                model,
+                noise,
+                cfg,
+                sampler,
+                sigmas,
+                live_conditioning(positive_prefix),
+                live_conditioning(negative_prefix),
+                latent_samples,
+                noise_mask=latent.get("noise_mask"),
+                callback=callback,
+                disable_pbar=not comfy.utils.PROGRESS_BAR_ENABLED,
+                seed=noise_seed,
+            )
+            image_index += 1
+            comfy.model_management.load_models_gpu([model])
+            model.pre_run()
+            return samples.to(device=device, dtype=diffusion_model.dtype)
+
+        progress = comfy.utils.ProgressBar(max_text_tokens)
+        result = session.generate(
+            sample_image,
+            max_text_tokens=max_text_tokens,
+            max_images=max_images,
+            progress=progress.update_absolute,
+            interrupt=comfy.model_management.throw_exception_if_processing_interrupted,
+        )
+    finally:
+        model.cleanup()
+
+    latent.pop("downscale_ratio_spacial", None)
+    latent.pop("downscale_ratio_temporal", None)
+    latent["samples"] = interleave_output_samples(result, latent_samples)
+    return latent, result.text, build_interleave_result(result)
+
+
+class SenseNovaTextEncode(io.ComfyNode):
+    """Encode image-generation or interleave prompts with optional thinking."""
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaTextEncode",
+            display_name="SenseNova 1.x Text Encode",
+            category="conditioning/SenseNova",
+            description="Encode a SenseNova prompt with optional image-generation reasoning or interleaved text/image output.",
+            inputs=[
+                io.Clip.Input(id="clip"),
+                io.String.Input(id="text", multiline=True, dynamic_prompts=True),
+                io.Combo.Input(
+                    id="mode",
+                    options=["image", "interleave"],
+                    default="image",
+                ),
+                io.Boolean.Input(id="thinking", default=False),
+                io.Int.Input(
+                    id="max_think_tokens",
+                    default=1024,
+                    min=1,
+                    max=8192,
+                    advanced=True,
+                ),
+            ],
+            outputs=[io.Conditioning.Output()],
+        )
+
+    @classmethod
+    def execute(cls, *, clip, text, thinking, max_think_tokens, mode="image"):
+        tokenize_options = {"thinking": thinking}
+        if mode == "interleave":
+            tokenize_options["mode"] = mode
+        tokens = clip.tokenize(text, **tokenize_options)
+        metadata = {
+            "sensenova_thinking": thinking,
+            "sensenova_max_think_tokens": max_think_tokens,
+            "sensenova_thinking_result": {
+                "enabled": thinking,
+                "token_ids": None,
+            },
+        }
+        if mode == "interleave":
+            metadata["sensenova_interleave"] = True
+        conditioning = clip.encode_from_tokens_scheduled(tokens, add_dict=metadata)
+        return io.NodeOutput(conditioning)
+
+
+class SenseNovaThinkingPreview(io.ComfyNode):
+    """Display the reasoning tokens produced by SenseNova image sampling."""
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaThinkingPreview",
+            display_name="SenseNova Thinking Preview",
+            category="sampling/SenseNova",
+            description=(
+                "Decode the thinking tokens generated while sampling. Connect the "
+                "samples output from the KSampler that uses this conditioning."
+            ),
+            is_output_node=True,
+            inputs=[
+                io.Clip.Input(id="clip"),
+                io.Conditioning.Input(id="conditioning"),
+                io.Latent.Input(
+                    id="samples",
+                    tooltip="Ensures this preview runs after the connected KSampler.",
+                ),
+            ],
+            outputs=[io.String.Output(display_name="thinking")],
+        )
+
+    @classmethod
+    def execute(cls, *, clip, conditioning, samples):
+        sampled_latent = samples.get("samples") if isinstance(samples, dict) else None
+        thinking_result = None
+        for conditioning_entry in conditioning:
+            metadata = conditioning_entry[1]
+            thinking_result = metadata.get("sensenova_thinking_result")
+            if thinking_result is not None:
+                break
+
+        if thinking_result is None or not thinking_result.get("enabled", False):
+            text = "SenseNova thinking is disabled for this conditioning."
+        elif sampled_latent is None or thinking_result.get("token_ids") is None:
+            text = (
+                "SenseNova thinking has not run. Connect samples from the KSampler "
+                "that uses this conditioning."
+            )
+        else:
+            text = clip.decode(thinking_result["token_ids"], skip_special_tokens=True).strip()
+            if not text:
+                text = "SenseNova thinking completed without visible text."
+        return io.NodeOutput(text, ui=ui.PreviewText(text))
+
+
+class SenseNovaInterleave(io.ComfyNode):
+    """Generate interleaved SenseNova text and image output."""
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaInterleave",
+            display_name="SenseNova 1.x Interleave",
+            category="sampling/custom_sampling/SenseNova",
+            description="Autoregressively generate ordered text and images, feeding each generated image back into the next turn.",
+            inputs=[
+                io.Model.Input(id="model"),
+                io.Clip.Input(id="clip"),
+                io.Conditioning.Input(id="positive"),
+                io.Conditioning.Input(id="negative"),
+                io.Int.Input(
+                    id="noise_seed",
+                    default=0,
+                    min=0,
+                    max=0xFFFFFFFFFFFFFFFF,
+                    control_after_generate=True,
+                ),
+                io.Float.Input(id="cfg", default=4.0, min=0.0, max=100.0, step=0.1, round=0.01),
+                io.Sampler.Input(id="sampler"),
+                io.Sigmas.Input(id="sigmas"),
+                io.Latent.Input(id="latent_image"),
+                io.Int.Input(id="max_text_tokens", default=1024, min=1, max=8192, advanced=True),
+                io.Int.Input(id="max_images", default=4, min=1, max=10, advanced=True),
+            ],
+            outputs=[
+                io.Latent.Output(display_name="samples"),
+                io.String.Output(display_name="text"),
+                InterleaveResultIO.Output(display_name="interleave_result"),
+            ],
+        )
+
+    @classmethod
+    def execute(
+        cls,
+        *,
+        model,
+        clip,
+        positive,
+        negative,
+        noise_seed,
+        cfg,
+        sampler,
+        sigmas,
+        latent_image,
+        max_text_tokens,
+        max_images,
+    ):
+        return io.NodeOutput(
+            *run_interleave(
+                model,
+                clip,
+                positive,
+                negative,
+                noise_seed,
+                cfg,
+                sampler,
+                sigmas,
+                latent_image,
+                max_text_tokens,
+                max_images,
+            )
+        )
+
+
+def _save_preview_images(images):
+    if images is None or images.shape[0] == 0:
+        return []
+    return [dict(value) for value in ui.PreviewImage(images).as_dict()["images"]]
+
+
+_IMAGE_REFERENCE_PATTERN = re.compile(r"<image(\d+)>")
+
+
+def _interleave_preview_parts(interleave_result, include_think):
+    """Resolve or hide final-answer image references for preview rendering."""
+
+    parts = interleave_result.get("parts", [])
+    image_parts = {
+        int(part.get("index", 0)): part
+        for part in parts
+        if part.get("type") == "image"
+    }
+    referenced_images = set()
+    resolved_text_parts = {}
+    for part_index, part in enumerate(parts):
+        if part.get("type") != "text":
+            continue
+        text = str(part.get("text", ""))
+        cursor = 0
+        resolved_parts = []
+        for match in _IMAGE_REFERENCE_PATTERN.finditer(text):
+            text_before_reference = text[cursor : match.start()].strip()
+            if text_before_reference:
+                resolved_parts.append({"type": "text", "text": text_before_reference})
+            image_index = int(match.group(1)) - 1
+            if not include_think and image_index in image_parts:
+                resolved_parts.append(image_parts[image_index])
+                referenced_images.add(image_index)
+            cursor = match.end()
+        remaining_text = text[cursor:].strip()
+        if remaining_text:
+            resolved_parts.append({"type": "text", "text": remaining_text})
+        resolved_text_parts[part_index] = resolved_parts
+
+    display_parts = []
+    for part_index, part in enumerate(parts):
+        part_type = part.get("type")
+        if part_type == "think":
+            if include_think:
+                display_parts.append(part)
+            continue
+        if part_type == "image":
+            if int(part.get("index", 0)) not in referenced_images:
+                display_parts.append(part)
+            continue
+        if part_type != "text":
+            continue
+        display_parts.extend(resolved_text_parts[part_index])
+    return display_parts
+
+
+class SenseNovaInterleavePreview(io.ComfyNode):
+    """Display interleaved text and images with optional thinking details."""
+
+    @classmethod
+    def define_schema(cls):
+        return io.Schema(
+            node_id="SenseNovaInterleavePreview",
+            display_name="SenseNova Interleave Preview",
+            category="sampling/custom_sampling/SenseNova",
+            is_output_node=True,
+            inputs=[
+                InterleaveResultIO.Input(id="interleave_result"),
+                io.Boolean.Input(id="include_think", default=False),
+                io.Image.Input(id="images", optional=True),
+            ],
+            outputs=[io.String.Output(display_name="markdown")],
+        )
+
+    @classmethod
+    def execute(cls, *, interleave_result, include_think, images=None):
+        display_parts = _interleave_preview_parts(interleave_result, include_think)
+        markdown = interleave_result_to_markdown(
+            {"parts": display_parts}, include_think=include_think
+        )
+        saved_images = _save_preview_images(images)
+        parts_payload = []
+        for part in display_parts:
+            part_type = part.get("type")
+            if part_type in ("text", "think"):
+                text = str(part.get("text", "")).strip()
+                if text:
+                    parts_payload.append({"type": part_type, "text": text})
+            elif part_type == "image":
+                index = int(part.get("index", 0))
+                image = saved_images[index] if index < len(saved_images) else None
+                if image is None:
+                    parts_payload.append({"type": "image", "index": index, "missing": True})
+                else:
+                    parts_payload.append(
+                        {
+                            "type": "image",
+                            "index": index,
+                            "filename": image.get("filename", ""),
+                            "subfolder": image.get("subfolder", ""),
+                            "image_type": image.get("type", "temp"),
+                        }
+                    )
+        return io.NodeOutput(markdown, ui={"text": [markdown], "parts": parts_payload})
+
+
 class SenseNovaExtension(ComfyExtension):
     @override
     async def get_node_list(self):
         return [
             SenseNovaU15Loader,
+            SenseNovaU15GGUFLoader,
             SenseNovaU15EightStepLoRA,
             EmptySenseNovaLatentImage,
             SenseNovaSamplingOptions,
@@ -444,6 +893,10 @@ class SenseNovaExtension(ComfyExtension):
             SenseNovaReferenceImageAdvanced,
             SenseNovaStructuredEditPrompt,
             SenseNovaEditGuider,
+            SenseNovaTextEncode,
+            SenseNovaThinkingPreview,
+            SenseNovaInterleave,
+            SenseNovaInterleavePreview,
         ]
 
 

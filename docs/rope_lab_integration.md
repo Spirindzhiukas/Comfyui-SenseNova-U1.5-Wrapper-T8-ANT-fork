@@ -1,5 +1,11 @@
 # RoPE Lab / MERD integration — SenseNova U1.5 (fork notes)
 
+> **Migration note (2026-09-03):** RoPE policy should move out of this wrapper
+> into RoPE Lab as a loader-agnostic MODEL patch node. The adapter design,
+> scoped hook strategy, cache requirements and custom/core test matrix are in
+> [`ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](ROPE_LAB_MODELPATCH_ARCHITECTURE.md).
+> The direct `transformer_options` keys below remain a transitional bridge.
+
 Distilled from `docs/SenseNova_MERD_and_RoPE_Lab_integration_research.md` (full
 provenance and the complete MERD YAML live there) and narrowed to what this
 node pack has to keep stable for `ANT_NODES/RoPE_Lab` + MERD v1.7.

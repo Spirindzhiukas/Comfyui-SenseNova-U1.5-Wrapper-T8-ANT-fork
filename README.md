@@ -16,7 +16,7 @@ English | [简体中文](README_CN.md)
 
 This repository is a maintenance fork of
 [`T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8`](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8)
-with upstream fixes synchronized through **1.3.7**, with the ConvRot quantization stack of
+with upstream features and fixes synchronized through **1.5.2**, with the ConvRot quantization stack of
 [`Milor123/ComfyUI-SenseNova-U1.5-ConvRot`](https://github.com/Milor123/ComfyUI-SenseNova-U1.5-ConvRot)
 ported on top of it, plus this fork's own fixes. Upstream's fixes, checkpoint
 contract and Blackwell-safe RoPE are all kept.
@@ -32,10 +32,11 @@ What this fork adds or changes on top of those two codebases:
 - **ConvRot quantized checkpoints (ported from Milor123)** — INT8 (about 17.6 GB),
   ConvRot W4A4 and asymmetric W4A8 (about 13.8 GB), including per-layer mixes, as
   an *optional* path that never changes bf16 behaviour.
-- **RoPE hook readiness** — the three per-axis RoPE bases can be overridden
-  through `transformer_options` for context-scaling experiments
-  ([`docs/rope_lab_integration.md`](docs/rope_lab_integration.md)), and the
-  prefix cache key includes them.
+- **Transitional RoPE hook readiness** — the three per-axis RoPE bases can be
+  overridden through `transformer_options` and are cache-safe across normal,
+  thinking and interleave paths. The intended loader-agnostic RoPE Lab MODEL
+  patch replacement is specified in
+  [`docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`](docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md).
 - **Conversion tooling** in `tools/` and a maintenance contract in
   [`memory.md`](memory.md).
 
@@ -48,11 +49,14 @@ Native ComfyUI nodes for SenseNova U1.5. The model, sampler, scheduler, VRAM off
 Supported features:
 
 - Text-to-image generation
+- Thinking image generation, with model reasoning before diffusion sampling
+- Interleaved text/image generation with generated-image feedback into later turns
 - Single-image editing
 - Multi-reference editing with 1 to 10 images
 - Generate 1 to 16 different results from the same prompt and references
 - Standard ComfyUI `KSampler`
 - Official U1.5 Final and U1.5 SFT checkpoints
+- Q2_K, Q3_K_M, Q5_K_M, Q6_K and Q8_0 GGUF quantizations of U1.5 Final
 - Official U1.5 8-step LoRA through ComfyUI's native LoRA and `ModelPatcher` pipeline
 - Three-branch guidance with a separate `img_cfg`
 - CFG Norm and configurable CFG intervals
@@ -86,6 +90,8 @@ common cause of `checkpoint key mismatch`.
 Dependencies:
 
 - This custom node has no extra Python dependencies for the bf16 path.
+- GGUF support requires `gguf >= 0.13.0`; installing this repository normally
+  installs it from `pyproject.toml`.
 - The optional quantized (ConvRot) path uses `comfy-kitchen` from your ComfyUI
   environment; `comfy-kitchen >= 0.2.31` is recommended because its INT8 kernel
   is the first one that actually applies the ConvRot rotation. Older releases
@@ -108,6 +114,7 @@ OpenSenseNova; both community repos publish conversions of those official files.
 |---|---|---|
 | [`t8star/SenseNova-U1.5-Comfy`](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/) | **T8mars** — author of the upstream ComfyUI wrapper this fork is based on | **Full-precision (bf16) checkpoints**: all-BF16 Final (~35 GB), legacy mixed-precision Final (~50 GB), SFT (~35 GB), and the ComfyUI-native 8-step LoRA (~815 MB). Each checkpoint also has a `*.manifest.json` tensor listing. Mirror: [Quark](https://pan.quark.cn/s/6b756fdae32d) |
 | [`Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`](https://huggingface.co/Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8) | **Milor123** — author of the ConvRot quantization fork the quant code here is ported from | **Quantized ConvRot checkpoints**: INT8-ConvRot (~17.6 GiB, recommended quant) and hybrid INT8+W4A8 `L18-41` (~13.8 GiB), plus a copy of the same 8-step LoRA under `Loras/` |
+| [`realrebelai/SenseNova-U1.5-8B_GGUFs`](https://huggingface.co/realrebelai/SenseNova-U1.5-8B_GGUFs) | **realrebelai** | Verified Final GGUF files: Q2_K, Q3_K_M, Q5_K_M, Q6_K and Q8_0; loaded by this pack's dedicated GGUF loader |
 | [`sensenova/SenseNova-U1.5-8B-MoT`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT) · [`-SFT`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-SFT) · [`-LoRAs`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-LoRAs) | **OpenSenseNova** — the model authors | The **official source weights** both community repos were converted from. Use these only if you want to convert files yourself: the raw LoRA needs `tools/convert_lora_to_comfy.py` and the sharded checkpoints need `tools/merge_safetensors.py` |
 
 Simple rule: **bf16 comes from the `t8star` repo, quantized comes from the
@@ -148,6 +155,14 @@ requires, so they load without running the injector. See
 [ConvRot quantized checkpoints](#convrot-quantized-checkpoints) for how to
 confirm the quantized path is active.
 
+### GGUF files — `realrebelai/SenseNova-U1.5-8B_GGUFs`
+
+Use `SenseNova U1.5 GGUF Loader (Final)` for the verified Q2_K, Q3_K_M,
+Q5_K_M, Q6_K and Q8_0 files. Place them in `ComfyUI/models/gguf/`. The loader
+strictly checks the selected profile's size, SHA256, tensor names, shapes and
+quantization types before construction. Full validation details are in
+[`docs/gguf-validation.md`](docs/gguf-validation.md).
+
 Base-model directory:
 
 ```text
@@ -158,6 +173,12 @@ LoRA directory:
 
 ```text
 ComfyUI/models/loras/
+```
+
+GGUF directory:
+
+```text
+ComfyUI/models/gguf/
 ```
 
 A subdirectory such as `ComfyUI/models/diffusion_models/SenseNovaU1.5/` also
@@ -175,7 +196,9 @@ The official 8-step LoRA must be used with Final. Do not apply it to SFT or Prev
 | Legacy mixed-precision U1.5 Final, 50-step generation/editing | ✅ | Existing downloads remain supported, about 50 GB |
 | U1.5 Final + `-ComfyUI` 8-step LoRA | ✅ | 8-step text-to-image only |
 | U1.5 SFT, 50-step generation/editing | ✅ | Standalone checkpoint; do not add the 8-step LoRA |
-| Quantized Final (INT8 ConvRot / hybrid W4A8), 50-step generation/editing | ✅ | Fork-only, from the `Milor123` repo; the 8-step LoRA also works on top |
+| Quantized Final (INT8 ConvRot / hybrid W4A8), 50-step generation/editing | ✅ | Fork compatibility path, from the `Milor123` repo; the 8-step LoRA also works on top |
+| Final GGUF, 50-step generation/editing | ✅ | Five strictly verified profiles; Q3_K_M is the suggested low-VRAM starting point |
+| Final GGUF + 8-step LoRA | ✅ | Uses the native ModelPatcher LoRA path |
 | U1.5 Preview | ❌ | Older preview checkpoint |
 | Unconverted official raw LoRA | ❌ | Use the `-ComfyUI` file or convert it with the included tool |
 
@@ -184,6 +207,10 @@ The official 8-step LoRA must be used with Final. Do not apply it to SFT or Prev
 These are normal ComfyUI canvas workflows. Download a JSON file and drag it onto the ComfyUI canvas. There are no API-format workflows in this repository. For editing workflows, select your own image in each `Load Image` node after importing.
 
 - [Text-to-image](examples/t2i_workflow.json)
+- [Thinking text-to-image](examples/thinking_t2i_workflow.json)
+- [Interleaved text/image generation](examples/interleave_workflow.json)
+- [GGUF text-to-image](examples/gguf_t2i_workflow.json)
+- [GGUF image editing](examples/gguf_edit_workflow.json)
 - [Batch text-to-image, two results by default](examples/batch_t2i_workflow.json)
 - [8-step LoRA text-to-image](examples/t2i_8step_workflow.json)
 - [Standard image editing, img_cfg=1](examples/edit_workflow.json)
@@ -198,7 +225,18 @@ These two workflows target ComfyUI builds that include native SenseNova U1.5 cor
 - [Native core text-to-image](examples/core_t2i_workflow.json)
 - [Native core image editing](examples/core_edit_workflow.json)
 
-The core workflows use ComfyUI's built-in `CheckpointLoaderSimple`, so place the base checkpoint in `ComfyUI/models/checkpoints/`. The 8-step LoRA can use the built-in `LoraLoaderModelOnly`; keep the LoRA file in `ComfyUI/models/loras/`.
+The core workflows use ComfyUI's built-in `CheckpointLoaderSimple`, so place the base checkpoint in `ComfyUI/models/checkpoints/`. The 8-step LoRA can use the built-in `LoraLoaderModelOnly`; keep the LoRA file in `ComfyUI/models/loras/`. The merged core implementation from [ComfyUI PR #15922](https://github.com/Comfy-Org/ComfyUI/pull/15922) reuses `EmptyHiDreamO1LatentImage` and `HiDreamO1ReferenceImages`.
+
+This pack's thinking and interleave implementation follows [ComfyUI PR #16032](https://github.com/Comfy-Org/ComfyUI/pull/16032) while retaining the custom Final/SFT, GGUF and ConvRot-compatible loader paths. If that core PR is merged, prefer the native implementation unless you need this pack's specialized loaders.
+
+### Thinking and interleaved generation
+
+For thinking generation, use `SenseNova 1.x Text Encode` in `image` mode with
+thinking enabled, then connect `SenseNova Thinking Preview` to the sampled
+latent. For interleaved output, encode both branches in `interleave` mode and
+use `SenseNova 1.x Interleave`; generated images are fed back into later turns.
+`SenseNova Interleave Preview` preserves model text/image order and can include
+or hide thinking text.
 
 Start with these settings:
 
@@ -624,7 +662,7 @@ support them, this fork would not exist without either.
 
 ```text
 OpenSenseNova/SenseNova-U1                     model + reference implementation (Apache-2.0)
-└─ T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8   ComfyUI wrapper, Apache-2.0 — fixes synced through 1.3.7
+└─ T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8   ComfyUI wrapper, Apache-2.0 — features synced through 1.5.2
    ├─ Milor123/ComfyUI-SenseNova-U1.5-ConvRot        ConvRot quantization fork, Apache-2.0 (7e1e320)
    └─ Spirindzhiukas/...-Wrapper-T8-ANT-fork         this repository
 ```
@@ -632,8 +670,9 @@ OpenSenseNova/SenseNova-U1                     model + reference implementation 
 This repository is a direct GitHub fork of **T8mars'** wrapper, not of Milor123's
 fork: it started from upstream 1.3.6, Milor123's quantization code was ported
 into it file by file, and subsequent T8mars fixes are reviewed and integrated.
-The latest review synchronized upstream PRs #5 and #6 (release 1.3.7); see
-[`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md).
+The synchronization history is documented in
+[`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md) and
+[`docs/UPSTREAM_SYNC_1.5.2.md`](docs/UPSTREAM_SYNC_1.5.2.md).
 
 ### What comes from T8mars
 
@@ -650,6 +689,8 @@ wrote it unless a fix required a change:
 | Frontend label extension | `web/sensenova_reference_labels_v131e.js` |
 | Example workflows | `examples/*.json` |
 | Checkpoint and LoRA tooling | `tools/build_checkpoint_contract.py`, `tools/convert_lora_to_comfy.py`, `tools/merge_safetensors.py`, `tools/validate_lifecycle.py`, `tools/validate_native.py`, `tools/run_upstream_oracle.py`, `tools/run_upstream_edit_oracle.py`, `tools/analyze_trace.py`, `tools/analyze_module_trace.py` |
+| GGUF loading and dequantization | `sensenova_u15/gguf_support.py`, `gguf_dequant.py`; adapted upstream from City96/ComfyUI-GGUF with attribution in `NOTICE` |
+| Thinking and interleaved generation | `sensenova_u15/interleave.py`, LM-head/decode additions in `model.py`, new nodes/workflows and `web/sensenova_interleave_preview.js`; adapted upstream from ComfyUI PR #16032 |
 | Test suite | `tests/*`, except the three `test_fork_*` files we added |
 | Documentation images | `docs/images/*` |
 | Upstream fixes this fork deliberately keeps | the **1.3.4 pure-PyTorch split-half RoPE** (Blackwell / CUDA 13 safe), the **1.3.5 checkpoint contract** with file-size, storage-dtype and legacy-revision validation, and the **1.3.7 prefix-mask dtype fix** for BF16 PyTorch SDPA |

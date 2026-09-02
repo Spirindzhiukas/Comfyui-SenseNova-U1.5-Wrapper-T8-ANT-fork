@@ -119,13 +119,13 @@ class RopeThetaPlumbingTests(unittest.TestCase):
             Attention._project(_FakeAttention(), hidden, indexes, False)
         self.assertEqual(captured, [5000000.0, 10000.0, 10000.0])
 
-    def test_vision_embeddings_forward_takes_a_theta(self):
+    def test_vision_embeddings_forward_takes_transformer_options(self):
         import inspect
 
         from sensenova_u15.model import VisionEmbeddings, VisionModel
 
-        self.assertIn("rope_theta", inspect.signature(VisionEmbeddings.forward).parameters)
-        self.assertIn("rope_theta", inspect.signature(VisionModel.forward).parameters)
+        self.assertIn("transformer_options", inspect.signature(VisionEmbeddings.forward).parameters)
+        self.assertIn("transformer_options", inspect.signature(VisionModel.forward).parameters)
 
     def test_rope_output_actually_depends_on_the_base(self):
         query = torch.randn(1, 2, 5, 64, generator=torch.Generator().manual_seed(0))
@@ -141,14 +141,15 @@ class RopeThetaPlumbingTests(unittest.TestCase):
 
     def test_prefix_cache_key_includes_the_active_bases(self):
         source = (PACKAGE_ROOT / "sensenova_u15" / "model.py").read_text(encoding="utf-8")
-        self.assertIn("(rope_theta_time, rope_theta_spatial, rope_theta_vision),", source)
+        self.assertIn("rope_thetas = resolve_rope_thetas(transformer_options)", source)
+        self.assertIn("rope_thetas,", source)
 
     def test_call_sites_pass_transformer_options(self):
         source = (PACKAGE_ROOT / "sensenova_u15" / "model.py").read_text(encoding="utf-8")
-        self.assertIn("self._project(hidden_states, indexes, False, transformer_options)", source)
-        self.assertIn("self._project(hidden_states, indexes, True, transformer_options)", source)
-        self.assertIn('self.fm_modules["vision_model_mot_gen"](x, rope_theta=rope_theta_vision)', source)
-        self.assertIn("self.vision_model(reference, rope_theta=rope_theta_vision)", source)
+        self.assertGreaterEqual(source.count("indexes, False, transformer_options"), 2)
+        self.assertIn("indexes, True, transformer_options", source)
+        self.assertIn('self.fm_modules["vision_model_mot_gen"](', source)
+        self.assertIn("transformer_options=transformer_options", source)
 
     def test_no_kitchen_rope_kernel_is_used(self):
         source = (PACKAGE_ROOT / "sensenova_u15" / "model.py").read_text(encoding="utf-8")

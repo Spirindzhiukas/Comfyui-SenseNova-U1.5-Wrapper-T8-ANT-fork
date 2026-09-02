@@ -1,8 +1,8 @@
 # memory.md — Maintenance Protocols for This SenseNova Fork
 
 Repository: `Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-fork`
-Base: `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` (started at **1.3.6**; fixes synchronized through **1.3.7**)
-Self-version: `1.4.3` (see `CHANGELOG.md`)
+Base: `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` (started at **1.3.6**; features synchronized through **1.5.2**)
+Self-version: `1.6.0` (see `CHANGELOG.md`)
 Contract this file implements: `docs/THE_TASK.md`
 Quant source: `Milor123/ComfyUI-SenseNova-U1.5-ConvRot` @ `7e1e320` (v1.3.1 base)
 
@@ -191,6 +191,10 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 - Never break `transformer_options["sensenova_prefix_cache"]`: dynamic methods
   change thetas per timestep, and the theta tuple is part of the cache key, so a
   changed scale correctly misses the cached prefix KV. Do not "optimise" that key.
+- The direct theta plumbing is now transitional. Move policy into the separately
+  maintained RoPE Lab using the loader-agnostic MODEL patch architecture in
+  `docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md`; remove it here only after that
+  project's custom-wrapper and native-core compatibility matrix passes.
 - Frozen imports a hook must handle: `optimized_attention`, `pad_to_patch_size`,
   `apply_rope1` (they are imported into `sensenova_u15.model`'s namespace, so a
   `sys.modules` walk or patching `sensenova_u15.model.<name>` is required).
@@ -209,6 +213,8 @@ falls back to our bridge, which reproduces Milor123's validated behaviour.
 | Pure-PyTorch split-half RoPE + 6D vision rotation | `sensenova_u15/model.py::_apply_llm_rope`, `_apply_interleaved_rope` | upstream `T8mars` commit `73657001` (1.3.4); verified, not re-applied |
 | Prefix attention mask cast to query dtype | `sensenova_u15/model.py::Attention.forward_prefix` | upstream T8mars PR #5 / commit `8f322794` (released in 1.3.7); test adapted to preserve this fork's `transformer_options` argument |
 | Upstream 1.3.7 sync audit | `docs/UPSTREAM_SYNC_1.3.7.md` | this fork, 2026-08-31; covers upstream PRs #5 and #6 and retained invariants |
+| Upstream 1.5.2 sync audit | `docs/UPSTREAM_SYNC_1.5.2.md` | this fork, 2026-09-03; covers upstream PRs #7–#12, GGUF, thinking/interleave and retained invariants |
+| Loader-agnostic RoPE patch handoff | `docs/ROPE_LAB_MODELPATCH_ARCHITECTURE.md` | this fork, 2026-09-03; implementation belongs in the separately maintained RoPE Lab project |
 | Quant header contract | `sensenova_u15/loader.py` (`QUANT_*`, `_read_quant_formats`, `_quant_checkpoint_contract`, `_validate_quant_header`) | adapted from Milor123 `sensenova_u15/loader.py` + `checkpoint_contract.py`, rebuilt on T8's JSON contract |
 | Quant ops wiring (`quant_config`, post-load invariant) | `sensenova_u15/loader.py::detect_quant_config`, `_validate_quantized_weights_loaded` | this fork, 2026-08-27, after the int8 checkerboard report; mirrors `comfy.sd.load_diffusion_model` + `comfy.model_detection` |
 | INT8 convrot capability probe (measured, not versioned) | `sensenova_u15/quant_bridge.py::kitchen_honours_int8_convrot` | this fork, 2026-08-27; reference maths cross-checked against comfy-kitchen v0.2.31 `backends/cuda/__init__.py::int8_linear` + `backends/eager/quantization.py` |
