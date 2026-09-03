@@ -12,7 +12,7 @@
 
 ## 本分支说明
 
-本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` **1.3.6** 的维护分支，并在其上
+本仓库是 `T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8` 的维护分支，上游功能与修复已同步至 **1.5.2**，并在其上
 移植了 `Milor123/ComfyUI-SenseNova-U1.5-ConvRot` 的 ConvRot 量化支持，再加上本分支
 自己的修复（详见 [`memory.md`](memory.md) 与 [`README.md`](README.md)（英文主文档））。
 逐文件说明“哪些代码来自 T8mars、哪些移植自 Milor123、本分支改了什么”，见英文主文档的
@@ -24,18 +24,19 @@
   的克隆不再报 `tokenizer asset digest mismatch`。
 - ConvRot 量化权重（可选）：INT8（约 17.6 GB）、ConvRot W4A4、非对称 W4A8
   （约 13.8 GB）以及按层混合，官方 BF16 加载路径保持不变。
-- RoPE 三条基频可由 `transformer_options` 覆盖，便于 ANT RoPE_Lab 做上下文长度/分辨率
-  缩放实验（`docs/rope_lab_integration.md`）。
 - `tools/` 下附带量化转换脚本。
 
 这是 SenseNova-U1.5 的 ComfyUI 原生节点。模型、采样器、调度器、显存卸载和工作流都走 ComfyUI 管道，支持：
 
 - 文生图
+- Thinking 推理后生图
+- 文本/图像交错生成，并把生成图回填到后续轮次
 - 单图编辑
 - 1～10 张参考图编辑
 - 同一提示词/参考图一次生成 1～16 个不同结果
 - 普通 `KSampler`
 - U1.5 Final 和 U1.5 SFT 两套官方权重
+- Final 的 Q2_K、Q3_K_M、Q5_K_M、Q6_K、Q8_0 GGUF 量化
 - 官方 U1.5 8-step LoRA（底层使用 ComfyUI 原生 LoRA/ModelPatcher 管道）
 - 自定义 `img_cfg` 的三路引导、CFG Norm 和 CFG 生效区间
 - 用明确的“修改 / 参考图职责 / 保持 / 禁止”结构整理复杂编辑提示词
@@ -66,7 +67,8 @@ git pull
 
 依赖：
 
-- BF16 路径没有额外的 Python 依赖。
+- GGUF 支持需要 `gguf >= 0.13.0`，正常安装本仓库时会由 `pyproject.toml` 安装。
+- BF16 路径没有额外的运行时依赖。
 - 可选的量化（ConvRot）路径使用 ComfyUI 环境中的 `comfy-kitchen`，建议 `>= 0.2.31`
   （它的 INT8 kernel 才真正执行 ConvRot 旋转）；更旧的版本仍可使用，本节点会在加载时
   实测 kernel 行为并自动切换到自带的 ConvRot 实现。
@@ -86,6 +88,7 @@ git pull
 |---|---|---|
 | [`t8star/SenseNova-U1.5-Comfy`](https://huggingface.co/t8star/SenseNova-U1.5-Comfy/) | **T8mars**（本分支所基于的上游封装作者） | **全精度（BF16）权重**：全 BF16 Final（约 35 GB）、旧版混合精度 Final（约 50 GB）、SFT（约 35 GB）、ComfyUI 原生键名的 8-step LoRA（约 815 MB），并附带每份权重的 `*.manifest.json`。网盘镜像：[夸克](https://pan.quark.cn/s/6b756fdae32d) |
 | [`Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8`](https://huggingface.co/Milor123/ComfyUI-ConvRot-SenseNova-U1.5-8B-MoT-T8) | **Milor123**（ConvRot 量化分支作者，量化代码即移植自他的仓库） | **量化 ConvRot 权重**：INT8-ConvRot（约 17.6 GiB，推荐的量化文件）与混合 INT8+W4A8 `L18-41`（约 13.8 GiB），`Loras/` 下另有一份相同的 8-step LoRA |
+| [`realrebelai/SenseNova-U1.5-8B_GGUFs`](https://huggingface.co/realrebelai/SenseNova-U1.5-8B_GGUFs) | **realrebelai** | Final 的 Q2_K、Q3_K_M、Q5_K_M、Q6_K、Q8_0 GGUF 文件 |
 | [`sensenova/SenseNova-U1.5-8B-MoT`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT) · [`-SFT`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-SFT) · [`-LoRAs`](https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT-LoRAs) | **OpenSenseNova**（模型作者） | 两个社区仓库转换所依据的**官方原始权重**；需要自己转换时才用：raw LoRA 需要 `tools/convert_lora_to_comfy.py`，分片权重需要 `tools/merge_safetensors.py` |
 
 简单记法：**BF16 权重在 `t8star` 仓库，量化权重在 `Milor123` 仓库。**
@@ -152,6 +155,10 @@ Final 和 SFT 都是 SenseNova U1.5，本节点都支持 50 步文生图和图�
 下面都是 ComfyUI 画布工作流，下载 JSON 后可以直接拖进 ComfyUI。没有 API 工作流。编辑工作流打开后，先在 `Load Image` 中选择自己的图片。
 
 - [文生图工作流](examples/t2i_workflow.json)
+- [Thinking 文生图工作流](examples/thinking_t2i_workflow.json)
+- [文本/图像交错生成工作流](examples/interleave_workflow.json)
+- [GGUF 文生图工作流](examples/gguf_t2i_workflow.json)
+- [GGUF 图像编辑工作流](examples/gguf_edit_workflow.json)
 - [批量文生图工作流（默认一次 2 张）](examples/batch_t2i_workflow.json)
 - [8-step LoRA 文生图工作流](examples/t2i_8step_workflow.json)
 - [普通编辑工作流（img_cfg=1）](examples/edit_workflow.json)

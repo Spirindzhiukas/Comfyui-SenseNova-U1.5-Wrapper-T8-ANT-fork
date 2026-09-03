@@ -16,9 +16,10 @@ class MetadataTests(unittest.TestCase):
     def test_registry_metadata(self):
         metadata = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertEqual(metadata["project"]["name"], "sensenova-u15-t8")
-        # 1.4.0 = upstream T8mars 1.3.6 plus this fork's ConvRot, CRLF and
+        # 1.6.x = upstream T8mars 1.5.2 plus this fork's ConvRot, CRLF and
         # English-UI changes; see CHANGELOG.md.
-        self.assertEqual(metadata["project"]["version"], "1.4.2")
+        self.assertEqual(metadata["project"]["version"], "1.6.1")
+        self.assertIn("gguf>=0.13.0", metadata["project"]["dependencies"])
         self.assertEqual(metadata["tool"]["comfy"]["PublisherId"], "t8star")
         self.assertEqual(metadata["tool"]["comfy"]["DisplayName"], "SenseNova U1.5 (T8)")
         self.assertTrue(metadata["project"]["urls"]["Model Download"].startswith("https://huggingface.co/t8star/"))
@@ -35,6 +36,11 @@ class MetadataTests(unittest.TestCase):
         extension = (PACKAGE_ROOT / "web" / "sensenova_reference_labels_v131e.js").read_text(encoding="utf-8")
         self.assertIn("SenseNovaReferenceImage", extension)
         self.assertIn("migrateLegacyReferenceInputs", extension)
+        interleave = (PACKAGE_ROOT / "web" / "sensenova_interleave_preview.js").read_text(encoding="utf-8")
+        self.assertIn("SenseNovaThinkingPreview", interleave)
+        self.assertIn("SenseNovaInterleavePreview", interleave)
+        self.assertIn("renderThinking", interleave)
+        self.assertIn("renderParts", interleave)
         self.assertIn('WEB_DIRECTORY = "./web"', (PACKAGE_ROOT / "__init__.py").read_text(encoding="utf-8"))
         self.assertGreater((PACKAGE_ROOT / "sensenova_u15" / "checkpoint_contract.json").stat().st_size, 100_000)
 
@@ -61,9 +67,7 @@ class MetadataTests(unittest.TestCase):
         patterns = set((PACKAGE_ROOT / ".comfyignore").read_text(encoding="utf-8").splitlines())
         self.assertIn("tools/", patterns)
         self.assertIn("tests/", patterns)
-        for name in ("memory.md", "docs/rope_lab_integration.md"):
-            with self.subTest(doc=name):
-                self.assertTrue((PACKAGE_ROOT / name).is_file())
+        self.assertTrue((PACKAGE_ROOT / "memory.md").is_file())
         init = (PACKAGE_ROOT / "__init__.py").read_text(encoding="utf-8")
         # the bf16 entry point must not import the quant stack eagerly
         self.assertNotIn("qt_guards", init)
@@ -78,7 +82,7 @@ class MetadataTests(unittest.TestCase):
 
     def test_registry_package_excludes_local_and_large_files(self):
         patterns = set((PACKAGE_ROOT / ".comfyignore").read_text(encoding="utf-8").splitlines())
-        self.assertTrue({"roadmap.md", "*.safetensors", "oracles/", "tools/"}.issubset(patterns))
+        self.assertTrue({"roadmap.md", "*.safetensors", "*.gguf", "oracles/", "tools/"}.issubset(patterns))
         self.assertFalse(any(pattern in {"*.json", "sensenova_u15/", "checkpoint_contract.json"} for pattern in patterns))
 
     def test_github_maintenance_configuration(self):
@@ -123,6 +127,8 @@ class MetadataTests(unittest.TestCase):
             "result-t2i-2048.png",
             "result-multi-reference-2048.png",
             "result-garment-edit-2048.png",
+            "result-gguf-q6-t2i-512.png",
+            "result-gguf-q6-lora-8step-512.png",
         ):
             with self.subTest(name=name):
                 self.assertGreater((PACKAGE_ROOT / "docs" / "images" / name).stat().st_size, 1024)

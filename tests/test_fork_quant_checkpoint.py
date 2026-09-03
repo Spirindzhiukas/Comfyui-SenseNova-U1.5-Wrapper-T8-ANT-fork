@@ -108,7 +108,9 @@ def build_checkpoint(formats, **breakage):
 
 class QuantContractTests(unittest.TestCase):
     def setUp(self):
-        patcher = mock.patch.object(loader, "_checkpoint_contract", lambda profile: dict(BASE_KEYS))
+        patcher = mock.patch.object(
+            loader, "_checkpoint_contract", lambda profile: dict(BASE_KEYS)
+        )
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -215,7 +217,11 @@ class QuantRealFileTests(unittest.TestCase):
     """Exercise the header reader against an actual safetensors file."""
 
     def setUp(self):
-        patcher = mock.patch.object(loader, "_checkpoint_contract", lambda profile: dict(BASE_KEYS))
+        # Keep real safetensors I/O tiny: the official LM head is about 2.5 GB
+        # in F32 and its full shape is already covered by QuantContractTests.
+        test_keys = dict(BASE_KEYS)
+        test_keys["language_model.lm_head.weight"] = ((2, 2), "F32")
+        patcher = mock.patch.object(loader, "_checkpoint_contract", lambda profile: dict(test_keys))
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -303,7 +309,7 @@ class ConverterToolTests(unittest.TestCase):
                 self.assertEqual(tool.detect_variant(tags), variant)
         self.assertIsNone(tool.detect_variant({}))
         self.assertIsNone(tool.detect_variant({"source_revision": "bogus"}))
-        other_repo = {"source_repo": "someone/else", **tool.VARIANTS["final"]}
+        other_repo = {**tool.VARIANTS["final"], "source_repo": "someone/else"}
         self.assertIsNone(tool.detect_variant(other_repo))
         stale = {"source_repo": tool.VARIANTS["final"]["source_repo"], "source_revision": "0" * 40}
         self.assertIsNone(tool.detect_variant(stale))
@@ -345,7 +351,9 @@ class ConverterToolTests(unittest.TestCase):
             untagged = Path(tmp) / "raw.safetensors"
             write(untagged, {})
             self.assertIsNone(tool.detect_variant(tool.read_header(untagged)["__metadata__"]))
-            tool.rewrite_header(untagged, Path(tmp) / "tagged.safetensors", tool.metadata_for("final"))
+            metadata = tool.metadata_for("final")
+            metadata["quantization"] = tool.QUANTIZATION_TAG
+            tool.rewrite_header(untagged, Path(tmp) / "tagged.safetensors", metadata)
             tagged = tool.read_header(Path(tmp) / "tagged.safetensors")["__metadata__"]
             self.assertEqual(tagged["quantization"], tool.QUANTIZATION_TAG)
             self.assertEqual(tagged["source_revision"], tool.VARIANTS["final"]["source_revision"])
@@ -408,7 +416,7 @@ class QuantBridgeGateTests(unittest.TestCase):
         with mock.patch.object(quant_bridge, "QUANT_ALGOS", formats), mock.patch.object(
             quant_bridge, "QuantizedTensor", object
         ), mock.patch.object(quant_bridge, "TensorWiseINT8Layout", object), mock.patch.object(
-            quant_bridge, "kitchen_honours_int8_convrot", lambda device=None: None
+            quant_bridge, "kitchen_honours_int8_convrot", return_value=None
         ) as probe:
             # kitchen's own layouts apply the rotation for these two, so no probe
             self.assertTrue(quant_bridge.core_supports_convrot(("convrot_w4a4",)))
@@ -486,7 +494,10 @@ class QuantOpsWiringTests(unittest.TestCase):
             from comfy.quant_ops import QuantizedTensor
         except Exception:  # pragma: no cover - ComfyUI without quant support
             self.skipTest("this ComfyUI has no QuantizedTensor")
-        real = QuantizedTensor(torch.zeros(4, 4, dtype=torch.int8), "TensorWiseINT8Layout")
+        params = types.SimpleNamespace(orig_shape=(4, 4), orig_dtype=torch.bfloat16)
+        real = QuantizedTensor(
+            torch.zeros(4, 4, dtype=torch.int8), "TensorWiseINT8Layout", params
+        )
         model = types.SimpleNamespace(
             diffusion_model=types.SimpleNamespace(named_parameters=lambda: [(f"{Q_STEM}.weight", real)])
         )

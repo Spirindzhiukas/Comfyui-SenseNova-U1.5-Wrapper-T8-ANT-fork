@@ -37,7 +37,6 @@ Changes made by this fork (Spirindzhiukas/Comfyui-SenseNova-U1.5-Wrapper-T8-ANT-
 - Measured comfy-kitchen INT8 convrot capability probe instead of a version check
 - Capability-aware ConvRot bridge and lazy installation of the cast guards
 - --variant auto in the metadata injector; Windows path cleanups in the tools
-- Per-axis RoPE thetas exposed through transformer_options (ANT RoPE Lab work)
 - See memory.md and the "Credits and provenance" section of README.md.
 
 Third-party methods and runtimes used through their public interfaces:
@@ -70,3 +69,10 @@ Community checkpoint repositories (this project ships no weights):
           (SenseNova-U1.5-8B-MoT-T8-int8-convrot-tagged.safetensors)
           72551898faee2aeada901e407e76987d1de68a323e4d16cccdb02ded471a73db
           (SenseNova-U1.5-8B-MoT-T8-hybw4a8-L18-41.safetensors)
+- realrebelai/SenseNova-U1.5-8B_GGUFs - verified GGUF quantizations,
+  revision bc2e8f83688489e6b465daa833e9b318ea45c9d9
+  https://huggingface.co/realrebelai/SenseNova-U1.5-8B_GGUFs
+
+GGUF tensor loading and on-demand dequantization in sensenova_u15/gguf_*.py
+are adapted from city96/ComfyUI-GGUF; Copyright City96 contributors;
+Apache License 2.0.

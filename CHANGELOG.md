@@ -2,9 +2,40 @@
 
 本文件记录 ComfyUI 节点本身的版本变化。模型权重的下载和说明见 Hugging Face 模型页。
 
-## [Unreleased] - 2026-08-28
+## [1.6.1] - 2026-09-03
 
-- 两份 README 增加完整的署名与来源说明：逐文件列出哪些代码来自 T8mars（上游 1.3.6 基座）、
+- 删除不再使用的三轴 RoPE `transformer_options` 覆盖桥接；模型实现恢复为 T8mars 1.5.2 上游代码，同时保留 CUDA 13 / Blackwell 安全的纯 PyTorch split-half RoPE。
+- prefix cache 本身继续保留，用于普通、Thinking 与交错生成的执行期 KV 复用；仅删除已无消费者的 theta override cache identity。
+- 删除已完成的一次性集成规划与过时研究材料及其代码/文档引用；量化、GGUF、CRLF 与英文 UI 功能不变。
+
+### English
+
+- Removed the unused per-axis RoPE `transformer_options` override bridge. The model implementation now matches T8mars 1.5.2 while retaining its CUDA 13/Blackwell-safe pure-PyTorch split-half RoPE.
+- Kept the execution-local prefix cache for normal, thinking and interleaved generation; only the unconsumed theta-override cache identity was removed.
+- Removed completed one-time integration plans, obsolete research material and related code/documentation references. Quantization, GGUF, CRLF and English-UI behavior are unchanged.
+
+## [1.6.0] - 2026-09-03
+
+- 同步 T8mars 上游 `1.3.8`～`1.5.2`（PR #7～#12）：采用已合并 ComfyUI core PR #15922 的原生工作流节点，新增严格校验的 Q2_K / Q3_K_M / Q5_K_M / Q6_K / Q8_0 GGUF Loader、Thinking 生图、文本/图像交错生成、KV 回填与顺序化预览，并包含 ComfyUI 0.33 预览兼容及编号图片定位修复。
+- 保留本分支的 ConvRot INT8/W4A4/W4A8 检测、严格派生 contract、量化 ops/guard、实测 comfy-kitchen 能力回退、CRLF tokenizer 容错、全英文 UI 与工作流。
+- 将新的 `language_model.lm_head.weight` 模型结构与 Thinking/Interleave 路径作为上游基座，量化操作只在存在 `*.comfy_quant` 侧车时叠加；GGUF 和 BF16 不会导入 ConvRot bridge。
+- 此版本曾暂时保留三轴 RoPE `transformer_options` 兼容桥接；该桥接已在 1.6.1 清理。
+- 完整合并审计见 [`docs/UPSTREAM_SYNC_1.5.2.md`](docs/UPSTREAM_SYNC_1.5.2.md)。
+
+### English
+
+- Synchronized T8mars upstream 1.3.8 through 1.5.2 (PRs #7–#12): native workflows for merged ComfyUI core PR #15922, strictly validated Q2_K/Q3_K_M/Q5_K_M/Q6_K/Q8_0 GGUF loading, thinking generation, interleaved text/image generation with KV feedback, ordered previews, ComfyUI 0.33 preview compatibility, and numbered-image placement fixes.
+- Preserved this fork's ConvRot INT8/W4A4/W4A8 detection, derived contracts, quantized operations and guards, measured comfy-kitchen fallback, CRLF-safe tokenizer handling, and English UI/workflows.
+- Adopted upstream's LM-head thinking/interleave model as the base and layers quantized operations only when `*.comfy_quant` sidecars exist; BF16 and GGUF do not import the ConvRot bridge.
+- This release temporarily retained a three-axis RoPE `transformer_options` compatibility bridge; it was removed in 1.6.1.
+- Full merge audit: [`docs/UPSTREAM_SYNC_1.5.2.md`](docs/UPSTREAM_SYNC_1.5.2.md).
+
+## [1.4.3] - 2026-08-31
+
+- 调查并集成 T8mars 上游 PR [#5](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/5)：prefix attention mask 在调用 ComfyUI attention 后端前转换为 query dtype，避免 PyTorch SDPA 在 FP32 mask 配合 BF16 Q/K/V 时产生有限但数值错误的输出；新增回归测试。
+- 审查上游发布 PR [#6](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/6)：保留本分支较新的 `1.4.x` 版本线而不降级为上游 `1.3.7`，本次发布为 `1.4.3`；上游 changelog 内容已合并到本条目。
+- 合并时保留本分支的 ConvRot 量化路径、CRLF 容错、英文 UI 和文档布局；完整审计见 [`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md)。
+- 两份 README 增加完整的署名与来源说明：逐文件列出哪些代码来自 T8mars（最初的上游 1.3.6 基座，修复同步至 1.3.7）、
   哪些移植自 `Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320`、以及本分支改了什么；
   `NOTICE` 同步补充两段上游署名、社区模型仓库与 ConvRot / comfy-kitchen /
   convert_to_quant / ComfyUI 的致谢。
@@ -19,8 +50,11 @@
 
 ### English
 
+- Investigated and integrated T8mars upstream PR [#5](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/5): the prefix attention mask is cast to the query dtype before ComfyUI dispatches to an attention backend, preventing finite but numerically incorrect PyTorch SDPA output with an FP32 mask and BF16 Q/K/V. Added a regression test.
+- Reviewed upstream release PR [#6](https://github.com/T8mars/Comfyui-SenseNova-U1.5-Wrapper-T8/pull/6): retained this fork's newer `1.4.x` version line instead of downgrading to upstream `1.3.7`, and released this integration as `1.4.3`; the upstream changelog content is represented here.
+- Preserved this fork's ConvRot quantization, CRLF tolerance, English UI, and documentation layout during integration. The complete audit is in [`docs/UPSTREAM_SYNC_1.3.7.md`](docs/UPSTREAM_SYNC_1.3.7.md).
 - Both READMEs gained a full "Credits and provenance" section: a file-by-file
-  breakdown of what comes from T8mars (upstream 1.3.6 base), what was ported from
+  breakdown of what comes from T8mars (initial upstream 1.3.6 base, fixes synchronized through 1.3.7), what was ported from
   `Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320`, and what this fork changed.
   `NOTICE` now carries the same attribution for both upstreams, the community model
   repositories, and ConvRot / comfy-kitchen / convert_to_quant / ComfyUI.
@@ -72,9 +106,9 @@
 - 全英文界面：参考图插槽名、`SenseNova Structured Edit Prompt` 默认值、前端扩展标签、内置工作流示例都改为英文；上游中文原文保留为注释，方便继续合并 T8mars 更新。
 - 新增可选 ConvRot 量化支持：`int8_tensorwise`、`convrot_w4a4`、`asym_w4a8_int8`（含按层混合格式与 hybrid 阶梯产物）通过每层 `*.comfy_quant` 侧车键被识别，并按派生自 `checkpoint_contract.json` 的 contract 严格校验；官方 bf16 检查点仍走完全不变的上游 JSON 分支，文件大小校验只对 bf16 生效。
 - `sensenova_u15/quant_bridge.py`（移植自 Milor123/ComfyUI-SenseNova-U1.5-ConvRot@7e1e320）只在当前 ComfyUI/comfy-kitchen 不会自行完成 convrot 激活旋转时启用；`sensenova_u15/qt_guards.py` 也只在真正加载量化权重时安装，因此 bf16 用户的行为和性能完全不变。可用 `SENSENOVA_NO_QUANT`、`SENSENOVA_NO_BRIDGE`、`SENSENOVA_FORCE_BRIDGE`、`SENSENOVA_NO_QT_GUARDS` 覆盖。
-- 保留上游 1.3.4 的纯 PyTorch RoPE 修复（CUDA 13 / Blackwell 安全），并把 t / hw / vision 三条 RoPE 基频改为可从 `transformer_options` 读取，prefix cache key 也包含基频，为 ANT RoPE_Lab 的动态缩放留出接口。
+- 保留上游 1.3.4 的纯 PyTorch RoPE 修复（CUDA 13 / Blackwell 安全）；此版本加入的实验性三轴 theta override 后于 1.6.1 删除。
 - 主 README 改为英文：原 `README_EN.md` 内容移到 `README.md`，中文文档改名 `README_CN.md`，仓库与 ComfyUI-Registry 首页默认显示英文。
-- 新增量化脚本 `tools/convert_sensenova_int4_convrot.py`、`tools/inject_sensenova_metadata.py`、`tools/make_hybrid_ladder.py`，维护契约 `memory.md` 与设计文档 `docs/rope_lab_integration.md`，以及量化检查点、CRLF、RoPE 基频相关测试。
+- 新增量化脚本 `tools/convert_sensenova_int4_convrot.py`、`tools/inject_sensenova_metadata.py`、`tools/make_hybrid_ladder.py`、维护契约 `memory.md`，以及量化检查点和 CRLF 相关测试。
 
 ### English
 
@@ -82,8 +116,8 @@
 - English UI: reference-image slot labels, the structured edit prompt defaults, the frontend extension label and the shipped examples are English; the upstream Chinese wording stays next to them as a comment so future T8mars merges stay reviewable.
 - Optional ConvRot quantization: `int8_tensorwise`, `convrot_w4a4` and `asym_w4a8_int8` checkpoints (including per-layer mixes and the hybrid ladder output) are detected through their per-layer `comfy_quant` sidecars and validated against a contract derived from the bundled `checkpoint_contract.json`. Official bf16 files keep the untouched upstream path, including the file-size check.
 - The ported `quant_bridge.py` installs itself only when the running ComfyUI/comfy-kitchen cannot rotate convrot activations itself, and `qt_guards.py` installs only for quantized loads, so bf16 behaviour and speed are unchanged. Override with `SENSENOVA_NO_QUANT`, `SENSENOVA_NO_BRIDGE`, `SENSENOVA_FORCE_BRIDGE` or `SENSENOVA_NO_QT_GUARDS`.
-- The upstream 1.3.4 pure-PyTorch RoPE fix is preserved, and the three RoPE bases (time, spatial, vision) can now be overridden per sampling pass through `transformer_options`; the prefix cache key includes them so a rescaled run never reuses stale KV.
-- New quant tooling in `tools/`, a maintenance contract in `memory.md`, `docs/rope_lab_integration.md`, plus tests for quantized headers, CRLF assets and the RoPE bases.
+- The upstream 1.3.4 pure-PyTorch RoPE fix is preserved. The experimental three-axis theta override added in this release was later removed in 1.6.1.
+- Added quant tooling in `tools/`, the `memory.md` maintenance contract, and tests for quantized headers and CRLF assets.
 - **English is now the default README**: `README.md` holds the English documentation (was `README_EN.md`) and the Chinese translation moved to `README_CN.md`, so the repository and ComfyUI-Registry front pages open in English.
 
 ## [1.3.6] - 2026-08-27

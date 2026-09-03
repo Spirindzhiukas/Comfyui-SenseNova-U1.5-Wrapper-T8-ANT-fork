@@ -43,7 +43,7 @@ class TokenizerAssetTests(unittest.TestCase):
             root = Path(tmp)
             for name in loader.TOKENIZER_ASSET_SHA256:
                 crlf = (loader.TOKENIZER_DIR / name).read_bytes().replace(b"\n", b"\r\n")
-                self.assertIsNone(crlf.count(b"\r\r"))
+                self.assertEqual(crlf.count(b"\r\r"), 0)
                 (root / name).write_bytes(crlf)
             with mock.patch.object(loader, "TOKENIZER_DIR", root), redirect_stdout(io.StringIO()) as out:
                 loader._validate_tokenizer_assets()

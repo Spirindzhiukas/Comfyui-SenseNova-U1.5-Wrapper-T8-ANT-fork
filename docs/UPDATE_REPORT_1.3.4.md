@@ -121,21 +121,12 @@ grep "unsqueeze(1)" ComfyUI-SenseNova-U1.5-ConvRot-FIXED/sensenova_u15/model.py
 
 All checks pass in current FIXED folder.
 
-## Integration impact for MERD/RoPE Lab
+## Implementation impact
 
-This fix **helps** RoPE Lab integration:
-
-- Old code dispatched to `ck.apply_rope_split_half` — your Lab's `inv_freq_buffer` strategy tried to patch `inv_freq`, but this model had no `inv_freq` buffer, so patching failed.
-- New code is **pure PyTorch** with explicit `cosine`, `sine`, `rotate_half` — much easier to monkey-patch via `method_hook`:
-  ```python
-  def hooked_llm_rope(query, key, positions, theta):
-      # Apply NTK scaling: theta * ntk_factor
-      ntk_factor = compute_ntk_factor_from_method(...)
-      return original(query, key, positions, theta * ntk_factor)
-  ```
-- For MERD, `cos_sin_arrangement` is now clearly `split_half` (rotate_half pattern) and `dype_output_format` is `rotation_matrix` / `mrope_interleaved` but with PyTorch reference — easier to document.
-
-So upstream fix aligns with our earlier suggestion to make RoPE patchable via `transformer_options`.
+The new code is **pure PyTorch** with explicit `cosine`, `sine`, and
+`rotate_half`. This avoids the CUDA 13 / Blackwell incompatibility in the old
+`ck.apply_rope_split_half` path while keeping the split-half arrangement and 6D
+vision rotation directly inspectable and testable.
 
 ---
 *Updated 2026-08-26*

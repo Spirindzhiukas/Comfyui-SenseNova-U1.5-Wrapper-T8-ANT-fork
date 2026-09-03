@@ -161,6 +161,7 @@ class LoaderTests(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".safetensors") as model_file:
             with (
                 patch.object(loader, "safe_open") as safe_open,
+                patch.object(loader, "_read_quant_formats", return_value={}),
                 patch.object(loader, "_validate_checkpoint_header", return_value=({"a"}, "final")),
                 patch.object(
                     loader,

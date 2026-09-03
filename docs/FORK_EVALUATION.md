@@ -136,8 +136,7 @@ YourName/ComfyUI-SenseNova-U1.5-Wrapper (forked from T8mars)
   ├─ Upstream 1.3.4 base (pure PyTorch RoPE, Registry)
   ├─ + tokenizer CRLF fix (our)
   ├─ + English UI (our)
-  ├─ + quant_bridge + qt_guards + quant-aware loader (from Milor123)
-  └─ + MERD/RoPE Lab research docs (optional)
+  └─ + quant_bridge + qt_guards + quant-aware loader (from Milor123)
 ```
 
 Version it as `1.3.4-convrot-english-fix` or `1.4.0`.
@@ -174,7 +173,7 @@ Version it as `1.3.4-convrot-english-fix` or `1.4.0`.
 5. **Test** with both bf16 official (should still work via JSON contract) and int8 quantized (via Python contract)
 6. **Push** to your GitHub as `ComfyUI-SenseNova-U1.5-Wrapper-T8-ConvRot-English` or similar, with clear attribution in README: "Forked from T8mars, includes ConvRot quantization from Milor123, plus tokenizer and UI fixes"
 
-This gives you a **maintainable, upstream-compatible, quant-enabled, English, Blackwell-safe** fork that you can work on later for MERD/RoPE Lab integration.
+This gives you a **maintainable, upstream-compatible, quant-enabled, English, Blackwell-safe** fork.
 
 ---
 *Evaluation done 2026-08-26, based on /tmp/upstream (7365700) vs /home/user/ComfyUI-SenseNova-U1.5-ConvRot (7e1e320) vs FIXED (merged)*
